@@ -13,13 +13,17 @@ import zipfile
 import io
 from multiprocessing import Lock
 from subprocess import Popen
+from dotenv import load_dotenv
+load_dotenv()
 
 
 # app = Flask(__name__)
 app = Flask(__name__)
-app.secret_key = "super_secret_key"  # Replace with a secure key in production
+# app.secret_key = "super_secret_key"  # Replace with a secure key in production
+# LICENSE_VALIDATION_URL = "https://script.google.com/macros/s/AKfycbx518ZptSKirJKIHRqEd-5PB_wFEY6RMo2WmbKmbwUSFJwzUzosP00tOVWVlYK5iXl1/exec"
 
-LICENSE_VALIDATION_URL = "https://script.google.com/macros/s/AKfycbx518ZptSKirJKIHRqEd-5PB_wFEY6RMo2WmbKmbwUSFJwzUzosP00tOVWVlYK5iXl1/exec"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev_key")
+LICENSE_VALIDATION_URL = os.getenv("LICENSE_VALIDATION_URL")
 
 running_processes = {}
 process_lock = Lock()
