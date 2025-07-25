@@ -1,0 +1,6 @@
+# .dockerignore
+venv/
+__pycache__/
+*.pyc
+Users/                 # user uploads stay on host/volume
+.env
