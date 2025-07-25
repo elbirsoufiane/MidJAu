@@ -1,0 +1,367 @@
+{# base.html - Main layout template #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}MidjyAuto{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            width: 100%;
+            background-color: #007bff;
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        main {
+            width: 100%;
+            max-width: 800px;
+            padding: 40px;
+            box-sizing: border-box;
+        }
+
+        a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .form-label {
+            font-weight: bold;
+            display: block;
+            margin-top: 15px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        input[type="submit"], button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        input[type="submit"]:hover,
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .flash-success {
+            background-color: #e6ffea;
+            color: #2a7f3b;
+            padding: 10px 15px;
+            border: 1px solid #2a7f3b;
+            border-radius: 6px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .centered {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .title {
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 30px;
+        }
+
+        .save-btn {
+            display: block;
+            margin: 20px auto 0 auto; /* center horizontally */
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: 2px solid #0056b3;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .save-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+
+        .nav-tabs {
+            display: flex;
+            justify-content: center;
+            background-color: #e9f0fa;
+            padding: 10px 0;
+            border-bottom: 1px solid #ccc;
+            gap: 30px;
+        }
+
+        .nav-tabs a {
+            /* color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 16px;
+            padding-bottom: 4px;
+            border-bottom: 2px solid transparent; */
+
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 18px;              /* Increased from 16px */
+            padding: 12px 24px;           /* More padding */
+            border-bottom: 3px solid transparent;  /* Thicker border */
+            transition: all 0.2s ease;
+        }
+
+        .nav-tabs a:hover {
+            color: #0056b3;
+        }
+
+        .nav-tabs .active {
+            /* border-bottom: 2px solid #007bff;
+            color: #0056b3; */
+
+            border-bottom: 3px solid #ffc400; /* Match thickness */
+            color: #0056b3;
+        }
+
+        .output-box {
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            padding: 20px;
+            width: 100%;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            overflow-y: auto;
+            height: 300px;
+        }
+
+        .mode-btn {
+            padding: 10px 20px;
+            border: 2px solid #007bff;
+            background-color: white;
+            color: #007bff;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .mode-btn:hover {
+            background-color: #e6f0ff;
+        }
+
+        .mode-btn.selected {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .flash-error {
+            background-color: #ffe6e6;
+            color: #cc0000;
+            padding: 10px 15px;
+            border: 1px solid #cc0000;
+            border-radius: 6px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 3px rgba(26, 115, 232, 0.5);
+        }
+
+        .save-btn:hover {
+            background-color: #0b5ed7;
+            cursor: pointer;
+        }
+        .input-field,
+        .save-btn {
+        transition: all 0.5s ease-in-out;
+        }
+        .eye-toggle {
+        position: absolute;
+        top: 50%;
+        right: 12px;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        font-size: 16px;
+        padding: 2px;
+        margin: 0;
+        cursor: pointer;
+        color: #666;
+        line-height: 1;
+        }
+
+        .eye-toggle:hover {
+        color: #007bff;
+        background-color: transparent;
+        }
+
+        .tooltip-wrapper {
+        position: absolute;
+        top: 50%;
+        right: 30px;
+        transform: translateY(-50%);
+        display: inline-block;
+        }
+
+        .tooltip-text {
+        visibility: hidden;
+        background-color: #333;
+        color: #fff;
+        text-align: center;
+        border-radius: 6px;
+        padding: 6px 10px;
+        position: absolute;
+        top: 36px;  /* ⬅️ Position tooltip below the button */
+        left: 90%;
+        transform: translateX(-50%);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        font-size: 13px;
+        white-space: nowrap;
+        z-index: 100;
+        }
+
+        .tooltip-text.show {
+        visibility: visible;
+        opacity: 1;
+        }
+
+        header {
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+        }
+
+
+
+    </style>
+    {% block extra_style %}{% endblock %}
+</head>
+<body>
+
+    <!-- <header>MidjyAuto</header> -->
+
+    <!-- <header style="background-color: #007bff; padding: 12px 0; text-align: center;">
+        <a href="{{ url_for('dashboard') }}">
+          <img src="{{ url_for('static', filename='logo.png') }}" alt="MidjyAuto Logo" style="height: 80px;">
+        </a>
+    </header> -->
+
+    <header style="background-color: #007bff; padding: 6px 0;">
+        <div style="display: flex; justify-content: center; align-items: center; position: relative;">
+          <a href="{{ url_for('dashboard') }}">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="MidjyAuto Logo" style="height: 90px;">
+          </a>
+      
+          {% if 'email' in session %}
+            <a href="{{ url_for('logout') }}" style="
+              position: absolute;
+              right: 30px;
+              color: white;
+              font-weight: bold;
+              text-decoration: none;
+            ">
+              Logout
+            </a>
+          {% endif %}
+        </div>
+    </header>
+      
+      
+      
+
+    <nav class="nav-tabs">
+        <a href="{{ url_for('login') }}" class="{% if request.endpoint == 'login' %}active{% endif %}">Login</a>
+        <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">Settings</a>
+    </nav>
+
+    <!-- 🔔 Toast Notification Container -->
+    <div id="toast-container" style="position: fixed; top: 100px; left: 50%; transform: translateX(-50%); z-index: 9999;"></div>
+
+
+    
+    <!-- {% if 'email' in session %}
+        <div style="position: absolute; top: 25px; right: 40px;">
+            <a href="{{ url_for('logout') }}" style="color: white; text-decoration: none; font-weight: bold;">Logout</a>
+        </div>
+    {% endif %} -->
+
+    <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div id="flash-message" class="flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+       {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        function showToast(message, type = "success") {
+          const container = document.getElementById("toast-container");
+          const toast = document.createElement("div");
+      
+          toast.className = `flash-${type}`;
+          toast.textContent = message;
+      
+          toast.style.marginBottom = "10px";
+          toast.style.padding = "10px 20px";
+          toast.style.borderRadius = "6px";
+          toast.style.boxShadow = "0 2px 8px rgba(0,0,0,0.2)";
+          toast.style.transition = "opacity 0.5s ease";
+          toast.style.opacity = "1";
+      
+          container.appendChild(toast);
+      
+          // Fade out and remove after 3 seconds
+          setTimeout(() => {
+            toast.style.opacity = "0";
+            setTimeout(() => container.removeChild(toast), 500);
+          }, 20000);
+        }
+      </script>
+      
+</body>
+</html>

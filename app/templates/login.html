@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Login - MidjyAuto{% endblock %}
+
+{% block content %}
+  <h2 class="title">🔐 Login</h2>
+  <form method="POST" style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+    <div style="width: 100%; max-width: 600px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);">
+    <div style="width: 100%; max-width: 600px;">
+      <label class="form-label">Email:</label>
+      <input type="text" name="email" class="input-field" required value="{{ session.get('saved_email', '') }}">
+
+      <label class="form-label">License Key:</label>
+      <div style="position: relative; width: 100%;">
+        <input type="password" name="key" id="key" class="input-field" required value="{{ session.get('saved_key', '') }}">
+        
+        <div class="tooltip-wrapper">
+          <button
+            type="button"
+            onclick="toggleKeyVisibility(event)"
+            class="eye-toggle"
+            aria-label="Toggle license visibility"
+            onmouseover="showTooltip(this)"
+            onmouseout="hideTooltip(this)"
+          >👁</button>
+          <span class="tooltip-text">Show/Hide key</span>
+        </div>
+      </div>      
+    
+      <div style="margin-top: 10px;">
+        <label style="font-size: 14px;">
+          <input type="checkbox" name="remember" {% if session.get('saved_email') %}checked{% endif %}>
+          Remember me
+        </label>
+      </div>
+    </div>
+    <button type="submit" class="save-btn">🔓 Login</button>
+    <div id="license-failed-flag" data-failed="{{ session.pop('license_failed', False) }}"></div>
+  </form>
+
+  <script>
+    function toggleKeyVisibility(event) {
+      const keyInput = document.getElementById('key');
+      const btn = event.target;
+      if (keyInput.type === 'password') {
+        keyInput.type = 'text';
+        btn.textContent = '🙈';
+      } else {
+        keyInput.type = 'password';
+        btn.textContent = '👁';
+      }
+    }
+
+    function showTooltip(button) {
+    const tooltip = button.nextElementSibling;
+    tooltip.classList.add("show");
+  }
+
+  function hideTooltip(button) {
+    const tooltip = button.nextElementSibling;
+    tooltip.classList.remove("show");
+  }
+
+const licenseFlag = document.getElementById("license-failed-flag");
+if (licenseFlag?.dataset.failed === "True") {
+  // 🧼 Reset all relevant states
+  localStorage.setItem("scriptRunning", "false");
+  sessionStorage.removeItem("scriptStarted");
+  // ✅ Prevent polling from continuing
+  localStorage.setItem("outputCleared", "true");
+}
+
+  </script>  
+  
+{% endblock %}
+
+
+

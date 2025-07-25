@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="settings-container">
+  <h2 class="title">⚙️ Settings</h2>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <ul>
+        {% for message in messages %}
+          <li class="success-message">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST">
+    <label>User Token:</label>
+    <input type="text" name="user_token" value="{{ settings['USER TOKEN'] }}">
+
+    <label>Bot Token:</label>
+    <input type="text" name="bot_token" value="{{ settings['BOT TOKEN'] }}">
+
+    <label>Channel ID:</label>
+    <input type="text" name="channel_id" value="{{ settings['CHANNEL ID'] }}">
+
+    <label>Guild ID:</label>
+    <input type="text" name="guild_id" value="{{ settings['GUILD ID'] }}">
+
+    <label>MidJourney App ID:</label>
+    <input type="text" name="midjourney_app_id" value="{{ settings['MIDJOURNEY APP ID'] }}">
+
+    <label>MidJourney Command ID:</label>
+    <input type="text" name="midjourney_command_id" value="{{ settings['MIDJOURNEY COMMAND ID'] }}">
+
+    <label>Command Version:</label>
+    <input type="text" name="command_version" value="{{ settings['COMMAND VERSION'] }}">
+
+    <button type="submit" class="save-btn">💾 Save Settings</button>
+  </form>
+</div>
+{% endblock %}
