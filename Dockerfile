@@ -26,4 +26,4 @@ EXPOSE 8000
 
 # 7. Default command: 3 workers, each with 2 threads
 CMD ["gunicorn", "-w", "3", "-k", "gevent", "-t", "120", \
-     "-b", "0.0.0.0:8000", "wsgi:application"]
+     "-b", "0.0.0.0:8000", "app.wsgi:application"]

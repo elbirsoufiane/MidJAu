@@ -1,0 +1,27 @@
+services:
+  web:
+    build: .
+    command: gunicorn -w 2 -k gevent -b 0.0.0.0:8000 app.wsgi:application
+    env_file: .env        # reuse your existing vars
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app            # hot‑reload in dev
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: .
+    command: python -m rq.worker default
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis

@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, url_for, flash
-from user_utils import init_user_if_missing, get_user_failed_prompts_path, get_user_log_path, get_user_settings_path, get_user_prompts_path, get_user_images_dir
-from user_utils import list_user_image_urls
+from .user_utils import init_user_if_missing, get_user_failed_prompts_path, get_user_log_path, get_user_settings_path, get_user_prompts_path, get_user_images_dir
+from .user_utils import list_user_image_urls
 import requests
 import os
 import time
@@ -15,6 +15,9 @@ from multiprocessing import Lock
 from subprocess import Popen
 from dotenv import load_dotenv
 load_dotenv()
+from redis import Redis
+from rq import Queue
+from app.tasks import midjourney_all 
 
 
 # app = Flask(__name__)
@@ -27,6 +30,9 @@ LICENSE_VALIDATION_URL = os.getenv("LICENSE_VALIDATION_URL")
 
 running_processes = {}
 process_lock = Lock()
+
+redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+q = Queue(connection=redis_conn)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -148,50 +154,11 @@ def dashboard():
 
             script = script_map.get(mode)
             if script:
-                # def run_script():
-                #     log_path = get_user_log_path(email)
-                #     with open(log_path, "w") as log_file:
-                #         process = subprocess.Popen(
-                #             ["python3", script],
-                #             stdout=subprocess.PIPE,
-                #             stderr=subprocess.STDOUT,
-                #             text=True,
-                #             env=env,
-                #             bufsize=1
-                #         )
-                #         for line in process.stdout:
-                #             log_file.write(line)
-                #             log_file.flush()
-                # Thread(target=run_script).start()
-
-
-                def run_script():
-                    log_path = get_user_log_path(email)
-                    with open(log_path, "w") as log_file:
-                        process = subprocess.Popen(
-                            ["python3", script],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            text=True,
-                            env=env,
-                            bufsize=1
-                        )
-                        with process_lock:
-                            running_processes[email] = process
-
-                        for line in process.stdout:
-                            log_file.write(line)
-                            log_file.flush()
-
-                        with process_lock:
-                            running_processes.pop(email, None)
-
-                Thread(target=run_script).start()
-
-
-                flash("🟢 Processing started. Follow the progress below.", "success")
-            else:
-                flash("❌ Invalid mode selected.", "error")
+                if script.endswith("MidjourneyAll.py"):
+                    job = q.enqueue(midjourney_all, email, get_user_prompts_path(email))
+                    flash(f"🟢 Job queued ({job.get_id()[:8]})", "success")
+                else:
+                    flash("❌ Only 'All' mode is supported in background mode.", "error")
     return render_template("dashboard.html", filename=filename, selected_mode=mode, just_logged_in=session.pop("just_logged_in", False))
 
 

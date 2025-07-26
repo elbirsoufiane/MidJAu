@@ -8,7 +8,7 @@ import difflib
 from urllib.parse import urlparse
 
 
-from user_utils import (
+from .user_utils import (
     get_user_settings_path,
     get_user_failed_prompts_path,
     get_user_log_path,
