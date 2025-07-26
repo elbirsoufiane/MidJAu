@@ -19,7 +19,8 @@ services:
 
   worker:
     build: .
-    command: python -m rq.worker default
+    # command: python -m rq.worker default
+    command: rq worker default
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379/0
