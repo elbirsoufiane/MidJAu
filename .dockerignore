@@ -4,3 +4,8 @@ __pycache__/
 *.pyc
 Users/                 # user uploads stay on host/volume
 .env
+# Docker artefacts
+dist/
+__pycache__/
+*.pyc
+
