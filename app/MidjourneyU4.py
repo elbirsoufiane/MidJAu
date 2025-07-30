@@ -7,6 +7,7 @@ import uuid
 import difflib
 from urllib.parse import urlparse
 from rq import get_current_job
+from rq.exceptions import CancelJobError
 from io import BytesIO
 from app.tigris_utils import download_file_obj, upload_file_path
 import zipfile
@@ -48,7 +49,7 @@ def check_cancel():
     if job:
         if job.is_canceled or job.meta.get("cancel_requested"):
             print("❌ Job was canceled – exiting early", flush=True)
-            raise SystemExit("Job canceled")
+            raise CancelJobError("Job canceled")
 
 def get_user_id():
     res = requests.get("https://discord.com/api/v9/users/@me", headers=HEADERS)
