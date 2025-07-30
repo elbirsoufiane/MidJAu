@@ -25,8 +25,9 @@ def list_user_image_urls(email):
 def get_user_logs_dir(email):
     return os.path.join(get_user_dir(email), "logs")
 
-def get_user_log_path(email):
-    return os.path.join(get_user_logs_dir(email), "live_output.txt")
+# Redis list key used for storing live log messages
+def get_user_log_key(email):
+    return f"user_log:{email}"
 
 def get_user_failed_prompts_path(email):
     return os.path.join(get_user_logs_dir(email), "failed_prompts.json")
@@ -47,8 +48,3 @@ def init_user_if_missing(email):
     if not os.path.exists(failed_path):
         with open(failed_path, "w") as f:
             json.dump([], f)
-
-    # Create live_output file if not exists
-    output_path = get_user_log_path(email)
-    if not os.path.exists(output_path):
-        open(output_path, "w").close()

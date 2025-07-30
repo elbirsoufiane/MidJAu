@@ -1,5 +1,12 @@
 from flask import Flask, render_template, request, redirect, session, url_for, flash
-from .user_utils import init_user_if_missing, get_user_failed_prompts_path, get_user_log_path, get_user_settings_path, get_user_prompts_path, get_user_images_dir
+from .user_utils import (
+    init_user_if_missing,
+    get_user_failed_prompts_path,
+    get_user_log_key,
+    get_user_settings_path,
+    get_user_prompts_path,
+    get_user_images_dir,
+)
 from .user_utils import list_user_image_urls
 import requests
 import os
@@ -178,7 +185,7 @@ def dashboard():
             filename = file.filename
 
             # ✅ Clear old live output before starting the new job
-            open(get_user_log_path(email), "w").close()
+            redis_conn.delete(get_user_log_key(email))
 
             env = os.environ.copy()
             env["PROMPTS_FILE"] = presigned_url
@@ -230,12 +237,11 @@ def live_output():
     if "email" not in session:
         return "Unauthorized", 401
 
-    log_path = get_user_log_path(session["email"])
-    try:
-        with open(log_path, "r") as f:
-            return f.read()
-    except FileNotFoundError:
+    log_key = get_user_log_key(session["email"])
+    logs = redis_conn.lrange(log_key, 0, -1)
+    if not logs:
         return "Waiting for output..."
+    return "\n".join(m.decode() for m in logs)
 
 @app.route("/Users/<path:filepath>")
 def uploaded_file(filepath):
