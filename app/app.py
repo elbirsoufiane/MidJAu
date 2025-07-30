@@ -105,7 +105,7 @@ def login():
                     session.pop("saved_key", None)
                 init_user_if_missing(email)
                 flash("✅ Welcome! You have been logged in successfully", "success")
-                # session["just_logged_in"] = True
+                session["just_logged_in"] = True
                 return redirect(url_for("dashboard"))
         except Exception as e:
             print(f"❌ License validation error: {e}")
