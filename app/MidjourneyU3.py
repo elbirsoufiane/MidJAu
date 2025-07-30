@@ -14,23 +14,28 @@ import zipfile
 from .user_utils import (
     get_user_settings_path,
     get_user_failed_prompts_path,
-    get_user_log_path,
+    get_user_log_key,
     get_user_images_dir,
 )
+from redis import Redis
+
+redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 
 # === Globals (set inside main) ===
 HEADERS = {}
 OUTPUT_DIR = ""
 FAILED_PROMPTS_PATH = ""
-log_path = ""
+LOG_KEY = ""
 
 # === Utilities ===
 def log(*args):
     msg = " ".join(str(a) for a in args)
     print(msg, flush=True)
-    if log_path:
-        with open(log_path, "a") as f:
-            f.write(msg + "\n")
+    if LOG_KEY:
+        try:
+            redis_conn.rpush(LOG_KEY, msg)
+        except Exception as e:
+            print(f"❌ Failed to write log: {e}", flush=True)
 
 # def check_cancel():
 #     job = get_current_job()
@@ -212,11 +217,11 @@ def process_batch(batch, start_index):
         log("✅ All images saved successfully.")
 
 def main(user_email: str, prompts_file: str):
-    global HEADERS, OUTPUT_DIR, FAILED_PROMPTS_PATH, CHANNEL_ID, GUILD_ID, MIDJOURNEY_APP_ID, MIDJOURNEY_COMMAND_ID, COMMAND_VERSION, log_path
+    global HEADERS, OUTPUT_DIR, FAILED_PROMPTS_PATH, CHANNEL_ID, GUILD_ID, MIDJOURNEY_APP_ID, MIDJOURNEY_COMMAND_ID, COMMAND_VERSION, LOG_KEY
 
     OUTPUT_DIR = get_user_images_dir(user_email)
     FAILED_PROMPTS_PATH = get_user_failed_prompts_path(user_email)
-    log_path = get_user_log_path(user_email)
+    LOG_KEY = get_user_log_key(user_email)
 
     log("🟢 MidjourneyU3 mode started running ...")
     check_cancel()

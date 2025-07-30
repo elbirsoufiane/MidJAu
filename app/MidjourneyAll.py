@@ -35,26 +35,24 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
         get_user_settings_path,
         get_user_failed_prompts_path,
         get_user_images_dir,
-        get_user_log_path,
+        get_user_log_key,
     )
 
     from .tigris_utils import download_file_obj, upload_file_path
     import zipfile
 
-    log_path = get_user_log_path(user_email)
-
-    with open(log_path, "w", encoding="utf-8") as f:
-        f.write("")  # Clear log
+    from redis import Redis
+    redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+    LOG_KEY = get_user_log_key(user_email)
+    redis_conn.delete(LOG_KEY)
 
 
     def log(msg: str):
         print(msg, flush=True)
         try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(msg + "\n")
+            redis_conn.rpush(LOG_KEY, msg)
         except Exception as e:
-            # print(f"❌ Failed to write log: {e}", flush=True)
-            log(f"❌ Failed to write log: {e}")
+            print(f"❌ Failed to write log: {e}", flush=True)
 
     # ── guards ─────────────────────────────────────────────────────────────
     if not user_email or not prompts_file:
