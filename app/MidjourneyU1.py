@@ -48,7 +48,7 @@ def check_cancel():
     if job:
         if job.is_canceled or job.meta.get("cancel_requested"):
             print("❌ Job was canceled – exiting early", flush=True)
-            exit(0)  # Or raise Exception("Canceled")    
+            raise SystemExit("Job canceled")
 
 def get_user_id():
     res = requests.get("https://discord.com/api/v9/users/@me", headers=HEADERS)
