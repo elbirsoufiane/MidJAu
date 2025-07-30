@@ -22,6 +22,7 @@ from app.tigris_utils import (
     upload_file_obj,
     download_file_obj,
     generate_presigned_url,
+    delete_file,
 )
 
 
@@ -420,6 +421,7 @@ def cleanup_files():
     # Delete prompts.xlsx
     if os.path.exists(prompts_path):
         os.remove(prompts_path)
+    delete_file(f"Users/{email}/prompts.xlsx")
 
     # Delete all images
     if os.path.exists(image_dir):
@@ -427,11 +429,13 @@ def cleanup_files():
             fpath = os.path.join(image_dir, f)
             if os.path.isfile(fpath):
                 os.remove(fpath)
+    delete_file(f"Users/{email}/images.zip")
     
     # Delete the failed_prompts.json file
     failed_path = get_user_failed_prompts_path(email)
     if os.path.exists(failed_path):
         os.remove(failed_path)
+    delete_file(f"Users/{email}/failed_prompts.json")
 
     return "✅ Cleaned up files", 200
 
@@ -521,15 +525,18 @@ def cancel_script():
 
     if os.path.exists(prompts_path):
         os.remove(prompts_path)
+    delete_file(f"Users/{email}/prompts.xlsx")
 
     if os.path.exists(image_dir):
         for f in os.listdir(image_dir):
             fpath = os.path.join(image_dir, f)
             if os.path.isfile(fpath):
                 os.remove(fpath)
+    delete_file(f"Users/{email}/images.zip")
 
     if os.path.exists(failed_path):
         os.remove(failed_path)
+    delete_file(f"Users/{email}/failed_prompts.json")
 
     return "Job canceled and all files cleaned up.", 200
 
