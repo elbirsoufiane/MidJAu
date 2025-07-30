@@ -277,6 +277,17 @@ def settings():
     email = session["email"]
     settings_path = get_user_settings_path(email)
 
+    # \U0001f4e5 Try to fetch saved settings from Tigris first
+    try:
+        remote_stream = download_file_obj(f"Users/{email}/settings.json")
+        if remote_stream:
+            remote_settings = json.load(remote_stream)
+            os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+            with open(settings_path, "w") as f:
+                json.dump(remote_settings, f, indent=4)
+    except Exception as e:
+        print(f"\u26a0\ufe0f Failed to download settings from Tigris: {e}")
+
     if request.method == "POST":
         new_settings = {
             "USER TOKEN": request.form.get("user_token"),
@@ -297,7 +308,7 @@ def settings():
     try:
         with open(settings_path) as f:
             current_settings = json.load(f)
-    except:
+    except Exception:
         current_settings = {}
 
     return render_template("settings.html", settings=current_settings)
