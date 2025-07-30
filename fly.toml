@@ -3,11 +3,13 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'testing-silent-sky-1649'
+
+app = 'testing-frosty-paper-8838'
+
 primary_region = 'cdg'
 
 [build]
-  dockerfile = 'worker.dockerfile'
+  dockerfile = 'Dockerfile'
 
 [http_service]
   internal_port = 8080
