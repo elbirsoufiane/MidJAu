@@ -72,6 +72,13 @@ def remove_job_id(email: str) -> None:
     """Remove a stored job ID for a user from Redis."""
     redis_conn.hdel(RUNNING_JOBS_HASH, email)
 
+# Callback for RQ jobs to clear job ID when they finish
+def clear_job_id_on_success(job, connection, result):
+    email = job.meta.get("user_email")
+    if email:
+        remove_job_id(email)
+
+
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -238,7 +245,16 @@ def dashboard():
             #         flash("❌ Only 'All' mode is supported in background mode.", "error")
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
-                job = q.enqueue(run_mode, mode, email, presigned_url, job_timeout=3600, result_ttl=0)
+                job = q.enqueue(
+                    run_mode,
+                    mode,
+                    email,
+                    presigned_url,
+                    job_timeout=3600,
+                    result_ttl=0,
+                    on_success=clear_job_id_on_success,
+                    meta={"user_email": email},
+                )
                 set_job_id(email, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
             else:
