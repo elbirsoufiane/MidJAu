@@ -53,10 +53,24 @@ process_lock = Lock()
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 q = Queue(connection=redis_conn)
 
-# Track currently running job per user in Redis
-USER_JOB_KEY_PREFIX = "user_job:"
+# Redis hash used for tracking running jobs
+RUNNING_JOBS_HASH = "running_jobs"
 
-running_jobs = {}
+
+def set_job_id(email: str, job_id: str) -> None:
+    """Store the RQ job ID for a user in Redis."""
+    redis_conn.hset(RUNNING_JOBS_HASH, email, job_id)
+
+
+def get_job_id(email: str) -> str | None:
+    """Retrieve the stored job ID for a user from Redis."""
+    jid = redis_conn.hget(RUNNING_JOBS_HASH, email)
+    return jid.decode() if jid else None
+
+
+def remove_job_id(email: str) -> None:
+    """Remove a stored job ID for a user from Redis."""
+    redis_conn.hdel(RUNNING_JOBS_HASH, email)
 
 @app.route("/", methods=["GET", "POST"])
 def login():
@@ -151,17 +165,19 @@ def dashboard():
         file = request.files["prompt_file"]
 
         # Check if a job is already running for this user
-        user_job_key = f"{USER_JOB_KEY_PREFIX}{email}"
-        existing_job_id = redis_conn.get(user_job_key)
+        existing_job_id = get_job_id(email)
         if existing_job_id:
             try:
-                existing_job = Job.fetch(existing_job_id.decode(), connection=redis_conn)
+                existing_job = Job.fetch(existing_job_id, connection=redis_conn)
                 if existing_job.get_status() in ("queued", "started"):
-                    flash("⚠️ A job is already running for this account. Please cancel it before queuing another.", "error")
+                    flash(
+                        "⚠️ A job is already running for this account. Please cancel it before queuing another.",
+                        "error",
+                    )
                     return render_template("dashboard.html", filename=None, selected_mode=mode)
             except NoSuchJobError:
                 pass  # Remove stale key below
-            redis_conn.delete(user_job_key)
+            remove_job_id(email)
 
         if file:
 
@@ -223,8 +239,7 @@ def dashboard():
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
                 job = q.enqueue(run_mode, mode, email, presigned_url, job_timeout=3600, result_ttl=0)
-                running_jobs[email] = job.id
-                redis_conn.set(user_job_key, job.id)
+                set_job_id(email, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
             else:
                 flash("❌ Invalid mode selected.", "error")
@@ -513,22 +528,22 @@ def cancel_script():
     if not email:
         return "❌ Not logged in", 401
 
-    job_id = running_jobs.get(email)
+    job_id = get_job_id(email)
 
     if not job_id:
         return "⚠️ No running job to cancel", 200
     try:
         job = Job.fetch(job_id, connection=redis_conn)
     except NoSuchJobError:
-        running_jobs.pop(email, None)
+        remove_job_id(email)
         return "⚠️ Job already completed or expired from Redis.", 200
 
     if job.is_finished:
-        running_jobs.pop(email, None)
+        remove_job_id(email)
         return "⚠️ Job already completed. Nothing to cancel.", 200
 
     if job.is_canceled:
-        running_jobs.pop(email, None)
+        remove_job_id(email)
         return "⚠️ Job was already canceled.", 200
 
     # ✅ Set manual cancel flag for U1–U4 modes
@@ -538,8 +553,7 @@ def cancel_script():
     # ✅ Native RQ cancel (for MidjourneyAll)
     job.cancel()
 
-    running_jobs.pop(email, None)
-    redis_conn.delete(f"{USER_JOB_KEY_PREFIX}{email}")
+    remove_job_id(email)
 
     # ✅ Optional: File cleanup logic
     prompts_path = get_user_prompts_path(email)
