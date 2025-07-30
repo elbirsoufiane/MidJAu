@@ -38,7 +38,8 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
         get_user_log_path,
     )
 
-    from .tigris_utils import download_file_obj
+    from .tigris_utils import download_file_obj, upload_file_path
+    import zipfile
 
     log_path = get_user_log_path(user_email)
 
@@ -338,4 +339,39 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
     # log(f"⏱️ Run finished in {mins} min {secs} sec")
     log(f"\n⏱️ The run took {mins} min {secs} sec to complete.")
     log("✅ Execution completed. Images saved in a ZIP file under Downloads. If there were failed prompts, an Excel file has also been downloaded.")
+
+    # ── Zip images and upload to Tigris ───────────────────────────────
+    zip_path = os.path.join(os.path.dirname(OUTPUT_DIR), "images.zip")
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fname in os.listdir(OUTPUT_DIR):
+                fpath = os.path.join(OUTPUT_DIR, fname)
+                if os.path.isfile(fpath):
+                    zf.write(fpath, arcname=fname)
+    except Exception as e:
+        log(f"⚠️ Failed to create ZIP: {e}")
+        zip_path = None
+
+    if zip_path and os.path.exists(zip_path):
+        if upload_file_path(zip_path, f"Users/{user_email}/images.zip"):
+            log("✅ Uploaded ZIP archive to cloud storage.")
+            try:
+                for fname in os.listdir(OUTPUT_DIR):
+                    os.remove(os.path.join(OUTPUT_DIR, fname))
+                os.remove(zip_path)
+            except Exception as e:
+                log(f"⚠️ Cleanup error: {e}")
+        else:
+            log("❌ Failed to upload ZIP archive.")
+
+    # ── Upload failed prompts ───────────────────────────────────────
+    if os.path.exists(FAILED_PROMPTS_PATH):
+        if upload_file_path(FAILED_PROMPTS_PATH, f"Users/{user_email}/failed_prompts.json"):
+            log("✅ Uploaded failed_prompts.json to cloud storage.")
+            try:
+                os.remove(FAILED_PROMPTS_PATH)
+            except Exception as e:
+                log(f"⚠️ Failed to delete local failed_prompts.json: {e}")
+        else:
+            log("❌ Failed to upload failed_prompts.json.")
 
