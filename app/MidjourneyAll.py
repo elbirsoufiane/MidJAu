@@ -82,6 +82,9 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
     #     cfg = json.load(f)
 
     settings_stream = download_file_obj(f"Users/{user_email}/settings.json")
+    if not settings_stream:
+        log("❌ Could not load settings file from storage. Exiting job.")
+        return
     cfg = json.load(settings_stream)
 
     USER_TOKEN            = cfg["USER TOKEN"]
