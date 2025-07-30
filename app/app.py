@@ -31,6 +31,7 @@ from app.tigris_utils import (
 from app.tasks import run_mode
 
 from rq.job import Job
+from rq.exceptions import NoSuchJobError
 import shutil
 
 
@@ -44,6 +45,9 @@ process_lock = Lock()
 
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 q = Queue(connection=redis_conn)
+
+# Track currently running job per user in Redis
+USER_JOB_KEY_PREFIX = "user_job:"
 
 running_jobs = {}
 
@@ -137,7 +141,20 @@ def dashboard():
 
         # ⏩ Continue with script execution if license is still valid
         mode = request.form["mode"]
-        file = request.files["prompt_file"]    
+        file = request.files["prompt_file"]
+
+        # Check if a job is already running for this user
+        user_job_key = f"{USER_JOB_KEY_PREFIX}{email}"
+        existing_job_id = redis_conn.get(user_job_key)
+        if existing_job_id:
+            try:
+                existing_job = Job.fetch(existing_job_id.decode(), connection=redis_conn)
+                if existing_job.get_status() in ("queued", "started"):
+                    flash("⚠️ A job is already running for this account. Please cancel it before queuing another.", "error")
+                    return render_template("dashboard.html", filename=None, selected_mode=mode)
+            except NoSuchJobError:
+                pass  # Remove stale key below
+            redis_conn.delete(user_job_key)
 
         if file:
 
@@ -200,6 +217,7 @@ def dashboard():
             if mode in ["U1", "U2", "U3", "U4", "All"]:
                 job = q.enqueue(run_mode, mode, email, presigned_url, job_timeout=3600, result_ttl=0)
                 running_jobs[email] = job.id
+                redis_conn.set(user_job_key, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
             else:
                 flash("❌ Invalid mode selected.", "error")
@@ -483,8 +501,6 @@ def logout():
 #     return "No running job", 400
 
 
-from rq.exceptions import NoSuchJobError
-
 @app.route("/cancel", methods=["POST"])
 def cancel_script():
     email = session.get("email")
@@ -517,6 +533,7 @@ def cancel_script():
     job.cancel()
 
     running_jobs.pop(email, None)
+    redis_conn.delete(f"{USER_JOB_KEY_PREFIX}{email}")
 
     # ✅ Optional: File cleanup logic
     prompts_path = get_user_prompts_path(email)
