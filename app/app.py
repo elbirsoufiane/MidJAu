@@ -132,33 +132,11 @@ def dashboard():
 
 
         try:
-            response = requests.get(LICENSE_VALIDATION_URL, params={"email": email, "key": key})
+            response = requests.get(
+                LICENSE_VALIDATION_URL, params={"email": email, "key": key}
+            )
             data = response.json()
             if not data.get("success"):
-
-                # Cancel running script if any
-                with process_lock:
-                    proc = running_processes.get(email)
-                    if proc and proc.poll() is None:
-                        proc.terminate()
-                        running_processes.pop(email, None)
-
-                        # Clean up files
-                        prompts_path = get_user_prompts_path(email)
-                        image_dir = get_user_images_dir(email)
-                        failed_path = get_user_failed_prompts_path(email)
-
-                        if os.path.exists(prompts_path):
-                            os.remove(prompts_path)
-
-                        if os.path.exists(image_dir):
-                            for f in os.listdir(image_dir):
-                                fpath = os.path.join(image_dir, f)
-                                if os.path.isfile(fpath):
-                                    os.remove(fpath)
-
-                        if os.path.exists(failed_path):
-                            os.remove(failed_path)
                 session.clear()
                 flash("❌ Invalid license. Please try again.", "error")
                 session["license_failed"] = True
