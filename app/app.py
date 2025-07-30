@@ -17,14 +17,20 @@ from dotenv import load_dotenv
 load_dotenv()
 from redis import Redis
 from rq import Queue
-from app.tasks import midjourney_all 
+from io import BytesIO
+from app.tigris_utils import upload_file_obj, download_file_obj
 
 
-# app = Flask(__name__)
+
+# from app.tasks import midjourney_all
+from app.tasks import run_mode
+
+from rq.job import Job
+import shutil
+
+
+
 app = Flask(__name__)
-# app.secret_key = "super_secret_key"  # Replace with a secure key in production
-# LICENSE_VALIDATION_URL = "https://script.google.com/macros/s/AKfycbx518ZptSKirJKIHRqEd-5PB_wFEY6RMo2WmbKmbwUSFJwzUzosP00tOVWVlYK5iXl1/exec"
-
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev_key")
 LICENSE_VALIDATION_URL = os.getenv("LICENSE_VALIDATION_URL")
 
@@ -34,6 +40,7 @@ process_lock = Lock()
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 q = Queue(connection=redis_conn)
 
+running_jobs = {}
 
 @app.route("/", methods=["GET", "POST"])
 def login():
@@ -44,6 +51,10 @@ def login():
 
         try:
             response = requests.get(LICENSE_VALIDATION_URL, params={"email": email, "key": key})
+            
+            print("✅ RAW RESPONSE:", response.text, flush=True)
+            print("✅ RESPONSE JSON:", response.json(), flush=True)
+
             print("✅ RAW RESPONSE:", response.text)
             data = response.json()
             if data.get("success"):
@@ -76,9 +87,6 @@ def dashboard():
     email = session["email"]
     mode = None
 
-    # if request.method == "POST":
-    #     mode = request.form["mode"]
-    #     file = request.files["prompt_file"]
 
     if request.method == "POST":
         # 🔐 License revalidation before proceeding
@@ -127,8 +135,24 @@ def dashboard():
         file = request.files["prompt_file"]    
 
         if file:
+
+            # Prepare in-memory file for Tigris
+            excel_stream = BytesIO(file.read())
+            key = f"Users/{email}/prompts.xlsx"
+
+            success = upload_file_obj(excel_stream, key)
+
+            if not success:
+                flash("❌ Failed to upload file to cloud storage", "error")
+                return render_template("dashboard.html", filename=None, selected_mode=mode)
+
+            # File was uploaded — you can display the filename
             filename = file.filename
-            file.save(get_user_prompts_path(email))
+
+            # file.save(get_user_prompts_path(email))
+
+            # ✅ Clear old live output before starting the new job
+            open(get_user_log_path(email), "w").close()
 
             env = os.environ.copy()
             env["PROMPTS_FILE"] = get_user_prompts_path(email)
@@ -136,29 +160,41 @@ def dashboard():
 
 
             try:
-                with open(get_user_settings_path(email)) as f:
-                    settings = json.load(f)
-                    for k, v in settings.items():
-                        env_key = k.replace(" ", "_")
-                        env[env_key] = v
+                settings_stream = download_file_obj(f"Users/{email}/settings.json")
+                settings = json.load(settings_stream)
+                # with open(get_user_settings_path(email)) as f:
+                #     settings = json.load(f)
+                for k, v in settings.items():
+                    env_key = k.replace(" ", "_")
+                    env[env_key] = v
+
             except Exception as e:
                 return render_template("dashboard.html", filename=filename, output=f"⚠️ Failed to load settings: {e}")
 
-            script_map = {
-                "U1": "app/MidjourneyU1.py",
-                "U2": "app/MidjourneyU2.py",
-                "U3": "app/MidjourneyU3.py",
-                "U4": "app/MidjourneyU4.py",
-                "All": "app/MidjourneyAll.py"
-            }
+            # script_map = {
+            #     "U1": "app/MidjourneyU1.py",
+            #     "U2": "app/MidjourneyU2.py",
+            #     "U3": "app/MidjourneyU3.py",
+            #     "U4": "app/MidjourneyU4.py",
+            #     "All": "app/MidjourneyAll.py"
+            # }
 
-            script = script_map.get(mode)
-            if script:
-                if script.endswith("MidjourneyAll.py"):
-                    job = q.enqueue(midjourney_all, email, get_user_prompts_path(email))
-                    flash(f"🟢 Job queued ({job.get_id()[:8]})", "success")
-                else:
-                    flash("❌ Only 'All' mode is supported in background mode.", "error")
+            # script = script_map.get(mode)
+            # if script:
+            #     if script.endswith("MidjourneyAll.py"):
+            #         job = q.enqueue(midjourney_all, email, get_user_prompts_path(email),job_timeout=3600, result_ttl=0)
+            #         running_jobs[email] = job.id
+            #         flash(f"🟢 Job queued ({job.get_id()[:8]})", "success")
+            #     else:
+            #         flash("❌ Only 'All' mode is supported in background mode.", "error")
+
+            if mode in ["U1", "U2", "U3", "U4", "All"]:
+                job = q.enqueue(run_mode, mode, email, get_user_prompts_path(email), job_timeout=3600, result_ttl=0)
+                running_jobs[email] = job.id
+                flash(f"🟢 Job queued in mode: {mode}", "success")
+            else:
+                flash("❌ Invalid mode selected.", "error")
+
     return render_template("dashboard.html", filename=filename, selected_mode=mode, just_logged_in=session.pop("just_logged_in", False))
 
 
@@ -205,7 +241,10 @@ def settings():
         }
         with open(settings_path, "w") as f:
             json.dump(new_settings, f, indent=4)
-        flash("✅ Settings saved!", "success")
+        # flash("✅ Settings saved!", "success")
+        # Upload to Tigris
+        settings_stream = BytesIO(json.dumps(new_settings).encode("utf-8"))
+        upload_file_obj(settings_stream, f"Users/{email}/settings.json")
 
     try:
         with open(settings_path) as f:
@@ -215,20 +254,36 @@ def settings():
 
     return render_template("settings.html", settings=current_settings)
 
+
 # @app.route('/download_zip')
 # def download_zip():
 #     if "email" not in session:
+#         print("❌ No email in session")
 #         return "Unauthorized", 401
 
 #     email = session["email"]
-#     folder = f"uploads/{email}/images"
+#     folder = f"Users/{email}/images"
+
+#     print(f"📩 Session email during ZIP: {email}")
+#     print(f"📁 Zipping folder: {folder}")
+
+#     if not os.path.exists(folder):
+#         print("❌ Folder does not exist.")
+#         return "No images found", 404
+
+#     files = os.listdir(folder)
+#     print(f"🧾 Files found: {files}")
 
 #     zip_stream = io.BytesIO()
 #     with zipfile.ZipFile(zip_stream, 'w', zipfile.ZIP_DEFLATED) as zf:
-#         for filename in os.listdir(folder):
+#         for filename in files:
 #             path = os.path.join(folder, filename)
 #             if os.path.isfile(path):
+#                 print(f"📦 Adding to ZIP: {filename}")
 #                 zf.write(path, arcname=filename)
+#             else:
+#                 print(f"⚠️ Skipped non-file: {filename}")
+
 #     zip_stream.seek(0)
 
 #     return send_file(
@@ -238,48 +293,71 @@ def settings():
 #         download_name='generated_images.zip'
 #     )
 
+
 @app.route('/download_zip')
 def download_zip():
     if "email" not in session:
-        print("❌ No email in session")
         return "Unauthorized", 401
 
     email = session["email"]
-    folder = f"Users/{email}/images"
+    zip_key = f"Users/{email}/images.zip"
 
-    print(f"📩 Session email during ZIP: {email}")
-    print(f"📁 Zipping folder: {folder}")
-
-    if not os.path.exists(folder):
-        print("❌ Folder does not exist.")
-        return "No images found", 404
-
-    files = os.listdir(folder)
-    print(f"🧾 Files found: {files}")
-
-    zip_stream = io.BytesIO()
-    with zipfile.ZipFile(zip_stream, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for filename in files:
-            path = os.path.join(folder, filename)
-            if os.path.isfile(path):
-                print(f"📦 Adding to ZIP: {filename}")
-                zf.write(path, arcname=filename)
-            else:
-                print(f"⚠️ Skipped non-file: {filename}")
-
-    zip_stream.seek(0)
-
-    print("✅ ZIP created and ready to download.")
-    return send_file(
-        zip_stream,
-        mimetype='application/zip',
-        as_attachment=True,
-        download_name='generated_images.zip'
-    )
+    try:
+        zip_stream = download_file_obj(zip_key)
+        zip_stream.seek(0)
+        return send_file(
+            zip_stream,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='generated_images.zip'
+        )
+    except Exception as e:
+        print(f"❌ Failed to fetch ZIP from Tigris: {e}")
+        return "ZIP file not available", 404
 
 
 from openpyxl import Workbook
 from flask import make_response
+
+# @app.route("/download_failed_prompts_excel")
+# def download_failed_prompts_excel():
+#     if "email" not in session:
+#         return "Unauthorized", 401
+
+#     email = session["email"]
+#     failed_path = get_user_failed_prompts_path(email)
+
+#     if not os.path.exists(failed_path):
+#         return "No failed prompts file", 404
+
+#     with open(failed_path) as f:
+#         data = json.load(f)
+
+#     if not data:
+#         return "No failed prompts", 204  # No Content
+
+#     wb = Workbook()
+#     ws = wb.active
+#     ws.append(["prompt", "indexes"])
+
+#     for entry in data:
+#         prompt = entry.get("prompt", "")
+#         index = entry.get("index", "")
+#         ws.append([prompt, index])
+
+#     from io import BytesIO
+#     excel_stream = BytesIO()
+#     wb.save(excel_stream)
+#     excel_stream.seek(0)
+
+#     return send_file(
+#         excel_stream,
+#         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+#         as_attachment=True,
+#         download_name="failed_prompts.xlsx"
+#     )
+
+
 
 @app.route("/download_failed_prompts_excel")
 def download_failed_prompts_excel():
@@ -287,13 +365,14 @@ def download_failed_prompts_excel():
         return "Unauthorized", 401
 
     email = session["email"]
-    failed_path = get_user_failed_prompts_path(email)
+    json_key = f"Users/{email}/failed_prompts.json"
 
-    if not os.path.exists(failed_path):
+    try:
+        json_stream = download_file_obj(json_key)
+        data = json.load(json_stream)
+    except Exception as e:
+        print(f"❌ Failed to fetch or parse failed prompts JSON: {e}")
         return "No failed prompts file", 404
-
-    with open(failed_path) as f:
-        data = json.load(f)
 
     if not data:
         return "No failed prompts", 204  # No Content
@@ -307,7 +386,6 @@ def download_failed_prompts_excel():
         index = entry.get("index", "")
         ws.append([prompt, index])
 
-    from io import BytesIO
     excel_stream = BytesIO()
     wb.save(excel_stream)
     excel_stream.seek(0)
@@ -318,6 +396,7 @@ def download_failed_prompts_excel():
         as_attachment=True,
         download_name="failed_prompts.xlsx"
     )
+
 
 
 
@@ -356,56 +435,95 @@ def logout():
     flash("You have been logged out.", "success")
     return redirect(url_for("login"))
 
-# @app.route("/cancel_script", methods=["POST"])
+
+# @app.route("/cancel", methods=["POST"])
 # def cancel_script():
-#     if "email" not in session:
-#         return "Unauthorized", 401
+#     email = session.get("email")
+#     job_id = running_jobs.get(email)
 
-#     email = session["email"]
-#     with process_lock:
-#         proc = running_processes.get(email)
-#         if proc and proc.poll() is None:
-#             proc.terminate()
-#             running_processes.pop(email, None)
-#             return "Script cancelled", 200
+#     if job_id:
+#         try:
+#             job = Job.fetch(job_id, connection=redis_conn)
+#             job.cancel()
 
-#     return "No running script", 400
+#             # ✅ File cleanup logic (restore from v2)
+#             prompts_path = get_user_prompts_path(email)
+#             image_dir = get_user_images_dir(email)
+#             failed_path = get_user_failed_prompts_path(email)
+
+#             if os.path.exists(prompts_path):
+#                 os.remove(prompts_path)
+
+#             if os.path.exists(image_dir):
+#                 for f in os.listdir(image_dir):
+#                     fpath = os.path.join(image_dir, f)
+#                     if os.path.isfile(fpath):
+#                         os.remove(fpath)
+
+#             if os.path.exists(failed_path):
+#                 os.remove(failed_path)
+
+#             return "Job canceled and all files cleaned up.", 200
+
+#         except Exception as e:
+#             return f"Error cancelling: {e}", 500
+
+#     return "No running job", 400
 
 
+from rq.exceptions import NoSuchJobError
 
-@app.route("/cancel_script", methods=["POST"])
+@app.route("/cancel", methods=["POST"])
 def cancel_script():
-    if "email" not in session:
-        return "Unauthorized", 401
+    email = session.get("email")
+    if not email:
+        return "❌ Not logged in", 401
 
-    email = session["email"]
-    with process_lock:
-        proc = running_processes.get(email)
-        if proc and proc.poll() is None:
-            proc.terminate()
-            running_processes.pop(email, None)
+    job_id = running_jobs.get(email)
 
-            # ✅ Perform cleanup (same as /cleanup_files)
-            prompts_path = get_user_prompts_path(email)
-            image_dir = get_user_images_dir(email)
-            failed_path = get_user_failed_prompts_path(email)
+    if not job_id:
+        return "⚠️ No running job to cancel", 200
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+    except NoSuchJobError:
+        running_jobs.pop(email, None)
+        return "⚠️ Job already completed or expired from Redis.", 200
 
-            if os.path.exists(prompts_path):
-                os.remove(prompts_path)
+    if job.is_finished:
+        running_jobs.pop(email, None)
+        return "⚠️ Job already completed. Nothing to cancel.", 200
 
-            if os.path.exists(image_dir):
-                for f in os.listdir(image_dir):
-                    fpath = os.path.join(image_dir, f)
-                    if os.path.isfile(fpath):
-                        os.remove(fpath)
+    if job.is_canceled:
+        running_jobs.pop(email, None)
+        return "⚠️ Job was already canceled.", 200
 
-            if os.path.exists(failed_path):
-                os.remove(failed_path)
+    # ✅ Set manual cancel flag for U1–U4 modes
+    job.meta["cancel_requested"] = True
+    job.save_meta()
 
-            return "Operation cancelled. All files have been cleaned up.", 200
+    # ✅ Native RQ cancel (for MidjourneyAll)
+    job.cancel()
 
-    return "No task in progress.", 400
+    running_jobs.pop(email, None)
 
+    # ✅ Optional: File cleanup logic
+    prompts_path = get_user_prompts_path(email)
+    image_dir = get_user_images_dir(email)
+    failed_path = get_user_failed_prompts_path(email)
+
+    if os.path.exists(prompts_path):
+        os.remove(prompts_path)
+
+    if os.path.exists(image_dir):
+        for f in os.listdir(image_dir):
+            fpath = os.path.join(image_dir, f)
+            if os.path.isfile(fpath):
+                os.remove(fpath)
+
+    if os.path.exists(failed_path):
+        os.remove(failed_path)
+
+    return "Job canceled and all files cleaned up.", 200
 
 
 if __name__ == "__main__":

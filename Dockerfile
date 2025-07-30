@@ -3,7 +3,7 @@ FROM python:3.11-slim
 
 # 1. System basics (build tools if you need them later)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential gcc \
+        build-essential gcc curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Set workdir
@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. Copy the rest of the source code
 COPY . .
+
+# Ensure /app/Users exists and is writable
+RUN mkdir -p /app/Users && chmod -R 777 /app/Users
 
 # 5. Provide a non‑root user (optional but good practice)
 RUN useradd -m runner

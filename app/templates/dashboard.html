@@ -212,7 +212,7 @@
   });
 
   document.getElementById("cancel-script-btn").addEventListener("click", () => {
-  fetch("/cancel_script", { method: "POST" })
+  fetch("/cancel", { method: "POST" })
     .then(response => response.text())
     .then(data => {
       showToast("🛑 " + data, "error");

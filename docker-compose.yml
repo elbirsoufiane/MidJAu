@@ -21,8 +21,10 @@ services:
     build: .
     # command: python -m rq.worker default
     command: rq worker default
+    volumes:           # 👈 add this block
+      - .:/app         # mount live code + Users/ directory
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - redis
+      - redis  
