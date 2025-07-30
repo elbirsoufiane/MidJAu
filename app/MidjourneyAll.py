@@ -28,7 +28,7 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
         if job:
             if job.is_canceled or job.meta.get("cancel_requested"):
                 print("❌ Job was canceled – exiting early", flush=True)
-                exit(0)  # Or raise Exception("Canceled")        
+                raise SystemExit("Job canceled")
 
     # ── project helpers ────────────────────────────────────────────────────
     from .user_utils import (
