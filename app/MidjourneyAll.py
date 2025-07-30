@@ -16,6 +16,7 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
     import pandas as pd
     import requests
     from rq import get_current_job
+    from rq.exceptions import CancelJobError
 
     # def check_cancel():
     #     job = get_current_job()
@@ -28,7 +29,7 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
         if job:
             if job.is_canceled or job.meta.get("cancel_requested"):
                 print("❌ Job was canceled – exiting early", flush=True)
-                raise SystemExit("Job canceled")
+                raise CancelJobError("Job canceled")
 
     # ── project helpers ────────────────────────────────────────────────────
     from .user_utils import (
