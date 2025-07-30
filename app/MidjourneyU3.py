@@ -225,6 +225,9 @@ def main(user_email: str, prompts_file: str):
     #     config = json.load(f)
 
     settings_stream = download_file_obj(f"Users/{user_email}/settings.json")
+    if not settings_stream:
+        log("❌ Could not load settings file from storage. Exiting job.")
+        return
     config = json.load(settings_stream)
 
     USER_TOKEN = config["USER TOKEN"]
@@ -241,6 +244,9 @@ def main(user_email: str, prompts_file: str):
 
     # prompts = pd.read_excel(prompts_file)["prompt"].dropna().tolist()
     response = requests.get(prompts_file)
+    if response.status_code != 200:
+        log(f"❌ Failed to download prompts file: {response.status_code}")
+        return
     prompts = pd.read_excel(BytesIO(response.content))["prompt"].dropna().tolist()
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
