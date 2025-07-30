@@ -18,7 +18,11 @@ load_dotenv()
 from redis import Redis
 from rq import Queue
 from io import BytesIO
-from app.tigris_utils import upload_file_obj, download_file_obj
+from app.tigris_utils import (
+    upload_file_obj,
+    download_file_obj,
+    generate_presigned_url,
+)
 
 
 
@@ -146,16 +150,20 @@ def dashboard():
                 flash("❌ Failed to upload file to cloud storage", "error")
                 return render_template("dashboard.html", filename=None, selected_mode=mode)
 
+            # 🚚 Generate a temporary download URL for the worker
+            presigned_url = generate_presigned_url(key)
+            if not presigned_url:
+                flash("❌ Failed to generate presigned URL", "error")
+                return render_template("dashboard.html", filename=None, selected_mode=mode)
+
             # File was uploaded — you can display the filename
             filename = file.filename
-
-            # file.save(get_user_prompts_path(email))
 
             # ✅ Clear old live output before starting the new job
             open(get_user_log_path(email), "w").close()
 
             env = os.environ.copy()
-            env["PROMPTS_FILE"] = get_user_prompts_path(email)
+            env["PROMPTS_FILE"] = presigned_url
             env["USER_EMAIL"] = email
 
 
@@ -189,7 +197,7 @@ def dashboard():
             #         flash("❌ Only 'All' mode is supported in background mode.", "error")
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
-                job = q.enqueue(run_mode, mode, email, get_user_prompts_path(email), job_timeout=3600, result_ttl=0)
+                job = q.enqueue(run_mode, mode, email, presigned_url, job_timeout=3600, result_ttl=0)
                 running_jobs[email] = job.id
                 flash(f"🟢 Job queued in mode: {mode}", "success")
             else:
