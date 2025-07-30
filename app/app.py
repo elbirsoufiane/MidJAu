@@ -210,15 +210,17 @@ def dashboard():
 
             try:
                 settings_stream = download_file_obj(f"Users/{email}/settings.json")
+                if not settings_stream:
+                    flash("❌ Failed to download settings from cloud storage", "error")
+                    return render_template("dashboard.html", filename=filename, selected_mode=mode)
                 settings = json.load(settings_stream)
-                # with open(get_user_settings_path(email)) as f:
-                #     settings = json.load(f)
                 for k, v in settings.items():
                     env_key = k.replace(" ", "_")
                     env[env_key] = v
 
             except Exception as e:
-                return render_template("dashboard.html", filename=filename, output=f"⚠️ Failed to load settings: {e}")
+                flash(f"⚠️ Failed to load settings: {e}", "error")
+                return render_template("dashboard.html", filename=filename, selected_mode=mode)
 
             # script_map = {
             #     "U1": "app/MidjourneyU1.py",
@@ -285,8 +287,10 @@ def settings():
             os.makedirs(os.path.dirname(settings_path), exist_ok=True)
             with open(settings_path, "w") as f:
                 json.dump(remote_settings, f, indent=4)
+        else:
+            flash("⚠️ No settings found in cloud storage", "error")
     except Exception as e:
-        print(f"\u26a0\ufe0f Failed to download settings from Tigris: {e}")
+        flash(f"⚠️ Failed to download settings: {e}", "error")
 
     if request.method == "POST":
         new_settings = {
@@ -300,10 +304,12 @@ def settings():
         }
         with open(settings_path, "w") as f:
             json.dump(new_settings, f, indent=4)
-        # flash("✅ Settings saved!", "success")
-        # Upload to Tigris
         settings_stream = BytesIO(json.dumps(new_settings).encode("utf-8"))
-        upload_file_obj(settings_stream, f"Users/{email}/settings.json")
+        success = upload_file_obj(settings_stream, f"Users/{email}/settings.json")
+        if success:
+            flash("✅ Settings saved!", "success")
+        else:
+            flash("❌ Failed to upload settings to cloud storage", "error")
 
     try:
         with open(settings_path) as f:
@@ -361,8 +367,12 @@ def download_zip():
     email = session["email"]
     zip_key = f"Users/{email}/images.zip"
 
+    zip_stream = download_file_obj(zip_key)
+    if not zip_stream:
+        flash("❌ ZIP file not found in cloud storage", "error")
+        return "ZIP file not available", 404
+
     try:
-        zip_stream = download_file_obj(zip_key)
         zip_stream.seek(0)
         return send_file(
             zip_stream,
@@ -371,7 +381,7 @@ def download_zip():
             download_name='generated_images.zip'
         )
     except Exception as e:
-        print(f"❌ Failed to fetch ZIP from Tigris: {e}")
+        flash(f"❌ Failed to send ZIP file: {e}", "error")
         return "ZIP file not available", 404
 
 
@@ -426,11 +436,14 @@ def download_failed_prompts_excel():
     email = session["email"]
     json_key = f"Users/{email}/failed_prompts.json"
 
+    json_stream = download_file_obj(json_key)
+    if not json_stream:
+        flash("❌ Failed to download failed prompts", "error")
+        return "No failed prompts file", 404
     try:
-        json_stream = download_file_obj(json_key)
         data = json.load(json_stream)
     except Exception as e:
-        print(f"❌ Failed to fetch or parse failed prompts JSON: {e}")
+        flash(f"❌ Failed to parse failed prompts: {e}", "error")
         return "No failed prompts file", 404
 
     if not data:
