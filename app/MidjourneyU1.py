@@ -211,6 +211,11 @@ def process_batch(batch, start_index):
             except Exception as e:
                 log(f"⚠️ Failed to load {FAILED_PROMPTS_PATH}: {e}")
         existing.extend(failed)
+
+        # Ensure the directory exists before writing
+        failed_prompts_dir = os.path.dirname(FAILED_PROMPTS_PATH)
+        os.makedirs(failed_prompts_dir, exist_ok=True)
+        
         with open(FAILED_PROMPTS_PATH, "w") as f:
             json.dump(existing, f, indent=2)
         log(f"{len(failed)} failed prompts have been saved to the failed prompts file.")

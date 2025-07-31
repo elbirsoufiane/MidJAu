@@ -310,6 +310,10 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
 
                 existing.extend(failed)
 
+                # Ensure directory exists before writing!
+                failed_prompts_dir = os.path.dirname(FAILED_PROMPTS_PATH)
+                os.makedirs(failed_prompts_dir, exist_ok=True)
+
                 with open(FAILED_PROMPTS_PATH, "w") as f:
                     json.dump(existing, f, indent=2)
 

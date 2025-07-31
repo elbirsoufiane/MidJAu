@@ -1,15 +1,12 @@
-# fly.toml app configuration file generated for testing-silent-sky-1649 on 2025-07-29T14:50:09+01:00
+# fly.toml app configuration file generated for midjau-web on 2025-07-31T00:57:50+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-
-app = 'testing-frosty-paper-8838'
-
+app = 'midjau-web'
 primary_region = 'cdg'
 
 [build]
-  dockerfile = 'Dockerfile'
 
 [http_service]
   internal_port = 8000

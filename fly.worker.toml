@@ -1,20 +1,13 @@
-# Fly.io worker configuration
-app = 'testing-frosty-paper-8838-worker'
+# fly.worker.toml for RQ worker
 
-primary_region = 'cdg'
+app = "midjau-worker"
+primary_region = "cdg"
 
 [build]
-  dockerfile = 'worker.dockerfile'
 
-[processes]
-  worker = 'rq worker default'
 
-# Environment variables are typically provided via Fly secrets.
-# These placeholders make it explicit which variables are needed.
-[env]
-  REDIS_URL = "replace-me"
-  AWS_ACCESS_KEY_ID = "replace-me"
-  AWS_SECRET_ACCESS_KEY = "replace-me"
-  AWS_ENDPOINT_URL_S3 = "replace-me"
-  BUCKET_NAME = "replace-me"
-  AWS_REGION = "auto"
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
