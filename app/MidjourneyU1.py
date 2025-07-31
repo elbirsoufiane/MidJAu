@@ -7,7 +7,7 @@ import uuid
 import difflib
 from urllib.parse import urlparse
 from rq import get_current_job
-from rq.exceptions import CancelJobError
+from .cancel_job_error import CancelJobError
 from io import BytesIO
 from app.tigris_utils import download_file_obj, upload_file_path
 import zipfile
