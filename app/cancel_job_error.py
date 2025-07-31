@@ -1,0 +1,2 @@
+class CancelJobError(Exception):
+    pass
