@@ -22,10 +22,17 @@
         {% endfor %}
     </div>
 
-    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">  
+    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
       <button type="submit" id="run-script-btn" class="save-btn">Start</button>
       <button type="button" id="cancel-script-btn" class="save-btn">Cancel</button>
     </div>
+
+    {% if row_count is not none %}
+    <div id="estimate-info" style="text-align:center; margin-top:10px;">
+      <div>Prompts: {{ row_count }} | Est. run time: {{ duration_estimate }} min</div>
+      <div id="queue-info">Job starts in ~{{ queue_eta }} min</div>
+    </div>
+    {% endif %}
     
 </form>
 
@@ -76,6 +83,18 @@
   const clearBtn = document.querySelector('button[onclick="clearOutput()"]');
   const statusMsg = document.getElementById("status-msg");
   const outputBox = document.getElementById("outputBox");
+  const queueInfo = document.getElementById("queue-info");
+
+  if (queueInfo) {
+    const avgJob = 5; // minutes per job
+    setInterval(() => {
+      fetch("/queue_length")
+        .then(r => r.json())
+        .then(d => {
+          queueInfo.textContent = `Job starts in ~${Math.ceil(d.count * avgJob)} min`;
+        });
+    }, 5000);
+  }
 
   // Persist state across page reloads using localStorage
   if (localStorage.getItem("scriptRunning") === "true") {
