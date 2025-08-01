@@ -133,22 +133,6 @@
 
           showToast("🟢 Images have been generated successfully!", "success");
 
-          // ⏳ Delay before ZIP download
-          // setTimeout(() => {
-          //   // ✅ Safer ZIP download trigger
-          //   window.location.href = "/download_zip";
-
-          //   // ✅ Trigger cleanup after download starts
-          //   setTimeout(() => {
-          //     fetch("/cleanup_files", { method: "POST" })
-          //       .then(res => res.text())
-          //       .then(msg => console.log(msg))
-          //       .catch(err => console.error("Cleanup failed:", err));
-
-          //     sessionStorage.removeItem("scriptStarted");
-          //   }, 2000);  // Optional cleanup delay for safety
-
-          // }, 2000);  // ZIP download delay
 
 
           setTimeout(() => {

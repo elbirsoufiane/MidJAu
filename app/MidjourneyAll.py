@@ -18,11 +18,6 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
     from rq import get_current_job
     from .cancel_job_error import CancelJobError
 
-    # def check_cancel():
-    #     job = get_current_job()
-    #     if job and job.is_canceled:
-    #         print("❌ Job was canceled – exiting early", flush=True)
-    #         exit(0)  # Or return if inside a loop
 
     def check_cancel():
         job = get_current_job()
@@ -76,9 +71,6 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
 
     prompts = pd.read_excel(BytesIO(response.content))["prompt"].dropna().tolist()
 
-
-    # with open(get_user_settings_path(user_email)) as f:
-    #     cfg = json.load(f)
 
     settings_stream = download_file_obj(f"Users/{user_email}/settings.json")
     if not settings_stream:
@@ -203,7 +195,7 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
         # 2) click U‑buttons
         time.sleep(30)
         # print("\n👁 Triggering U‑buttons …", flush=True)
-        log("\n👁 Triggering U1 upscaled images is in progress...")
+        log("\n👁 Triggering upscaled images is in progress...")
 
         for _ in range(len(queue)):
             check_cancel()
@@ -306,7 +298,7 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
                                 existing = json.loads(content)
                     except Exception as e:
                         # log(f"⚠️ Failed to read existing failed prompts: {e}")
-                        log(f"⚠️ Failed to load {FAILED_PROMPTS_PATH}: {e}")
+                        log(f"⚠️ Failed to load failed Prompts")
 
                 existing.extend(failed)
 
@@ -332,19 +324,14 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
     for i in range(0, len(prompts), BATCH_SIZE):
         batch = prompts[i : i + BATCH_SIZE]
         clear_discord_channel()
-        # print(f"🚀 Batch {i // BATCH_SIZE + 1} – {len(batch)} prompts", flush=True)
-        # log(f"🚀 Batch {i // BATCH_SIZE + 1} – {len(batch)} prompts")
         log(f"\n🚀 Processing batch {i // BATCH_SIZE + 1} ({len(batch)} prompts)...")
-        time.sleep(2)
+        time.sleep(1)
         log("\n↓↓↓ Starting to send prompts:")
         process_batch(batch, i + 1)
         clear_discord_channel()
 
     mins, secs = divmod(int(time.time() - start), 60)
-    # print(f"⏱️ Run finished in {mins} min {secs} sec", flush=True)
-    # log(f"⏱️ Run finished in {mins} min {secs} sec")
-    log(f"\n⏱️ The run took {mins} min {secs} sec to complete.")
-    log("✅ Execution completed. Images saved in a ZIP file under Downloads. If there were failed prompts, an Excel file has also been downloaded.")
+
 
     # ── Zip images and upload to Tigris ───────────────────────────────
     zip_path = os.path.join(os.path.dirname(OUTPUT_DIR), "images.zip")
@@ -355,12 +342,12 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
                 if os.path.isfile(fpath):
                     zf.write(fpath, arcname=fname)
     except Exception as e:
-        log(f"⚠️ Failed to create ZIP: {e}")
+        log(f"⚠️ Failed to create Images ZIP: {e}")
         zip_path = None
 
     if zip_path and os.path.exists(zip_path):
         if upload_file_path(zip_path, f"Users/{user_email}/images.zip"):
-            log("✅ Uploaded ZIP archive to cloud storage.")
+            log("✅ Execution completed. Images saved in a ZIP folder under downloads.")
             try:
                 for fname in os.listdir(OUTPUT_DIR):
                     os.remove(os.path.join(OUTPUT_DIR, fname))
@@ -373,11 +360,14 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
     # ── Upload failed prompts ───────────────────────────────────────
     if os.path.exists(FAILED_PROMPTS_PATH):
         if upload_file_path(FAILED_PROMPTS_PATH, f"Users/{user_email}/failed_prompts.json"):
-            log("✅ Uploaded failed_prompts.json to cloud storage.")
+            log(" Failed prompts Excel file has also been downloaded.") 
             try:
                 os.remove(FAILED_PROMPTS_PATH)
             except Exception as e:
-                log(f"⚠️ Failed to delete local failed_prompts.json: {e}")
+                log(f"⚠️ Failed to delete failed prompts: {e}")
         else:
-            log("❌ Failed to upload failed_prompts.json.")
+            log("❌ Failed to upload failed prompts")
+
+
+    log(f"\n⏱️ The run took {mins} min {secs} sec to complete.")     
 

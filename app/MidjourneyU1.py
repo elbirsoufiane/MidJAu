@@ -38,11 +38,6 @@ def log(*args):
         except Exception as e:
             print(f"❌ Failed to write log: {e}", flush=True)
 
-# def check_cancel():
-#     job = get_current_job()
-#     if job and job.meta.get("cancel_requested"):
-#         log("❌ Job canceled by user. Exiting...")
-#         raise Exception("Job canceled")
 
 def check_cancel():
     job = get_current_job()
@@ -209,7 +204,7 @@ def process_batch(batch, start_index):
                 with open(FAILED_PROMPTS_PATH, "r") as f:
                     existing = json.load(f)
             except Exception as e:
-                log(f"⚠️ Failed to load {FAILED_PROMPTS_PATH}: {e}")
+                log(f"⚠️ Failed to load failed prompts")
         existing.extend(failed)
 
         # Ensure the directory exists before writing
@@ -272,7 +267,7 @@ def main(user_email: str, prompts_file: str):
             clear_discord_channel()
         except Exception as e:
             log("⚠️ Clear failed:", e)
-        time.sleep(2)
+        time.sleep(1)
         log("\n↓↓↓ Starting to send prompts:")
         process_batch(batch, i + 1)
         try:
@@ -281,8 +276,8 @@ def main(user_email: str, prompts_file: str):
             log("⚠️ Clear after batch failed:", e)
 
     total = time.time() - start
-    log(f"\n⏱️ The run took {int(total // 60)} min {int(total % 60)} sec to complete.")
-    log("✅ Execution completed. Images saved in a ZIP folder under Downloads. If there were failed prompts, an Excel file has also been downloaded.")
+
+    # log("✅ Execution completed. Images saved in a ZIP folder under Downloads. If there were failed prompts, an Excel file has also been downloaded.")
 
     # ── Zip images and upload to Tigris ───────────────────────────────
     zip_path = os.path.join(os.path.dirname(OUTPUT_DIR), "images.zip")
@@ -298,7 +293,7 @@ def main(user_email: str, prompts_file: str):
 
     if zip_path and os.path.exists(zip_path):
         if upload_file_path(zip_path, f"Users/{user_email}/images.zip"):
-            log("✅ Uploaded ZIP archive to cloud storage.")
+            log("✅ Execution completed. Images saved in a ZIP folder under downloads.")
             try:
                 for fname in os.listdir(OUTPUT_DIR):
                     os.remove(os.path.join(OUTPUT_DIR, fname))
@@ -311,10 +306,12 @@ def main(user_email: str, prompts_file: str):
     # ── Upload failed prompts ───────────────────────────────────────
     if os.path.exists(FAILED_PROMPTS_PATH):
         if upload_file_path(FAILED_PROMPTS_PATH, f"Users/{user_email}/failed_prompts.json"):
-            log("✅ Uploaded failed_prompts.json to cloud storage.")
+            log(" Failed prompts Excel file has also been downloaded.") 
             try:
                 os.remove(FAILED_PROMPTS_PATH)
             except Exception as e:
                 log(f"⚠️ Failed to delete local failed_prompts.json: {e}")
         else:
             log("❌ Failed to upload failed_prompts.json.")
+
+    log(f"\n⏱️ The run took {int(total // 60)} min {int(total % 60)} sec to complete.")        

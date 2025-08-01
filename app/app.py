@@ -91,8 +91,8 @@ def login():
             
             print("✅ RAW RESPONSE:", response.text, flush=True)
             print("✅ RESPONSE JSON:", response.json(), flush=True)
-
             print("✅ RAW RESPONSE:", response.text)
+
             data = response.json()
             if data.get("success"):
                 session["email"] = email
@@ -173,7 +173,7 @@ def dashboard():
             success = upload_file_obj(excel_stream, key)
 
             if not success:
-                flash("❌ Failed to upload file to cloud storage", "error")
+                flash("❌ Failed to upload prompts Excel file to cloud storage", "error")
                 return render_template("dashboard.html", filename=None, selected_mode=mode)
 
             # 🚚 Generate a temporary download URL for the worker
@@ -207,22 +207,6 @@ def dashboard():
                 flash(f"⚠️ Failed to load settings: {e}", "error")
                 return render_template("dashboard.html", filename=filename, selected_mode=mode)
 
-            # script_map = {
-            #     "U1": "app/MidjourneyU1.py",
-            #     "U2": "app/MidjourneyU2.py",
-            #     "U3": "app/MidjourneyU3.py",
-            #     "U4": "app/MidjourneyU4.py",
-            #     "All": "app/MidjourneyAll.py"
-            # }
-
-            # script = script_map.get(mode)
-            # if script:
-            #     if script.endswith("MidjourneyAll.py"):
-            #         job = q.enqueue(midjourney_all, email, get_user_prompts_path(email),job_timeout=3600, result_ttl=0)
-            #         running_jobs[email] = job.id
-            #         flash(f"🟢 Job queued ({job.get_id()[:8]})", "success")
-            #     else:
-            #         flash("❌ Only 'All' mode is supported in background mode.", "error")
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
                 job = q.enqueue(
@@ -273,7 +257,6 @@ def settings():
     email = session["email"]
     settings_path = get_user_settings_path(email)
 
-    # \U0001f4e5 Try to fetch saved settings from Tigris first
     try:
         remote_stream = download_file_obj(f"Users/{email}/settings.json")
         if remote_stream:
@@ -314,44 +297,6 @@ def settings():
     return render_template("settings.html", settings=current_settings)
 
 
-# @app.route('/download_zip')
-# def download_zip():
-#     if "email" not in session:
-#         print("❌ No email in session")
-#         return "Unauthorized", 401
-
-#     email = session["email"]
-#     folder = f"Users/{email}/images"
-
-#     print(f"📩 Session email during ZIP: {email}")
-#     print(f"📁 Zipping folder: {folder}")
-
-#     if not os.path.exists(folder):
-#         print("❌ Folder does not exist.")
-#         return "No images found", 404
-
-#     files = os.listdir(folder)
-#     print(f"🧾 Files found: {files}")
-
-#     zip_stream = io.BytesIO()
-#     with zipfile.ZipFile(zip_stream, 'w', zipfile.ZIP_DEFLATED) as zf:
-#         for filename in files:
-#             path = os.path.join(folder, filename)
-#             if os.path.isfile(path):
-#                 print(f"📦 Adding to ZIP: {filename}")
-#                 zf.write(path, arcname=filename)
-#             else:
-#                 print(f"⚠️ Skipped non-file: {filename}")
-
-#     zip_stream.seek(0)
-
-#     return send_file(
-#         zip_stream,
-#         mimetype='application/zip',
-#         as_attachment=True,
-#         download_name='generated_images.zip'
-#     )
-
 
 @app.route('/download_zip')
 def download_zip():
@@ -381,45 +326,6 @@ def download_zip():
 
 from openpyxl import Workbook
 from flask import make_response
-
-# @app.route("/download_failed_prompts_excel")
-# def download_failed_prompts_excel():
-#     if "email" not in session:
-#         return "Unauthorized", 401
-
-#     email = session["email"]
-#     failed_path = get_user_failed_prompts_path(email)
-
-#     if not os.path.exists(failed_path):
-#         return "No failed prompts file", 404
-
-#     with open(failed_path) as f:
-#         data = json.load(f)
-
-#     if not data:
-#         return "No failed prompts", 204  # No Content
-
-#     wb = Workbook()
-#     ws = wb.active
-#     ws.append(["prompt", "indexes"])
-
-#     for entry in data:
-#         prompt = entry.get("prompt", "")
-#         index = entry.get("index", "")
-#         ws.append([prompt, index])
-
-#     from io import BytesIO
-#     excel_stream = BytesIO()
-#     wb.save(excel_stream)
-#     excel_stream.seek(0)
-
-#     return send_file(
-#         excel_stream,
-#         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#         as_attachment=True,
-#         download_name="failed_prompts.xlsx"
-#     )
-
 
 
 @app.route("/download_failed_prompts_excel")
@@ -501,43 +407,9 @@ def cleanup_files():
 @app.route("/logout")
 def logout():
     session.clear()
-    flash("You have been logged out.", "success")
+    flash("❌ You have been logged out.", "success")
     return redirect(url_for("login"))
 
-
-# @app.route("/cancel", methods=["POST"])
-# def cancel_script():
-#     email = session.get("email")
-#     job_id = running_jobs.get(email)
-
-#     if job_id:
-#         try:
-#             job = Job.fetch(job_id, connection=redis_conn)
-#             job.cancel()
-
-#             # ✅ File cleanup logic (restore from v2)
-#             prompts_path = get_user_prompts_path(email)
-#             image_dir = get_user_images_dir(email)
-#             failed_path = get_user_failed_prompts_path(email)
-
-#             if os.path.exists(prompts_path):
-#                 os.remove(prompts_path)
-
-#             if os.path.exists(image_dir):
-#                 for f in os.listdir(image_dir):
-#                     fpath = os.path.join(image_dir, f)
-#                     if os.path.isfile(fpath):
-#                         os.remove(fpath)
-
-#             if os.path.exists(failed_path):
-#                 os.remove(failed_path)
-
-#             return "Job canceled and all files cleaned up.", 200
-
-#         except Exception as e:
-#             return f"Error cancelling: {e}", 500
-
-#     return "No running job", 400
 
 
 @app.route("/cancel", methods=["POST"])
@@ -554,7 +426,7 @@ def cancel_script():
         job = Job.fetch(job_id, connection=redis_conn)
     except NoSuchJobError:
         remove_job_id(email)
-        return "⚠️ Job already completed or expired from Redis.", 200
+        return "⚠️ Job already completed or expired.", 200
 
     if job.is_finished:
         remove_job_id(email)

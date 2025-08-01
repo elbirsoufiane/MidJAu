@@ -278,13 +278,6 @@
 </head>
 <body>
 
-    <!-- <header>MidjyAuto</header> -->
-
-    <!-- <header style="background-color: #007bff; padding: 12px 0; text-align: center;">
-        <a href="{{ url_for('dashboard') }}">
-          <img src="{{ url_for('static', filename='logo.png') }}" alt="MidjyAuto Logo" style="height: 80px;">
-        </a>
-    </header> -->
 
     <header style="background-color: #007bff; padding: 6px 0;">
         <div style="display: flex; justify-content: center; align-items: center; position: relative;">
@@ -319,21 +312,37 @@
     <div id="toast-container" style="position: fixed; top: 100px; left: 50%; transform: translateX(-50%); z-index: 9999;"></div>
 
 
-    
-    <!-- {% if 'email' in session %}
-        <div style="position: absolute; top: 25px; right: 40px;">
-            <a href="{{ url_for('logout') }}" style="color: white; text-decoration: none; font-weight: bold;">Logout</a>
-        </div>
-    {% endif %} -->
 
     <main>
-        {% with messages = get_flashed_messages(with_categories=true) %}
+        
+        <!-- {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             {% for category, message in messages %}
               <div id="flash-message" class="flash-{{ category }}">{{ message }}</div>
             {% endfor %}
           {% endif %}
-       {% endwith %}
+       {% endwith %} -->
+
+       {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div id="flash-messages">
+            {% for category, message in messages %}
+                <div class="flash-{{ category }} flash-msg">{{ message }}</div>
+            {% endfor %}
+            </div>
+            <script>
+            setTimeout(function() {
+                var flashes = document.querySelectorAll('.flash-msg');
+                flashes.forEach(function(msg) {
+                msg.style.transition = "opacity 0.5s";
+                msg.style.opacity = 0;
+                setTimeout(function() { msg.remove(); }, 500);
+                });
+            }, 3000); // 2 seconds
+            </script>
+        {% endif %}
+        {% endwith %}
+
 
         {% block content %}{% endblock %}
     </main>
@@ -359,7 +368,7 @@
           setTimeout(() => {
             toast.style.opacity = "0";
             setTimeout(() => container.removeChild(toast), 500);
-          }, 20000);
+          }, 3000);
         }
       </script>
       
