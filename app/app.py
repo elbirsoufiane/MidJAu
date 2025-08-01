@@ -31,6 +31,7 @@ from app.tigris_utils import (
     generate_presigned_url,
     delete_file,
 )
+import pandas as pd
 
 
 
@@ -52,6 +53,18 @@ process_lock = Lock()
 
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 q = Queue(connection=redis_conn)
+
+# Rough per-prompt runtimes (seconds) for each mode
+MODE_RUNTIME = {
+    "U1": 60,
+    "U2": 60,
+    "U3": 60,
+    "U4": 60,
+    "All": 80,
+}
+
+# Average runtime of a queued job in seconds (for ETA of queue start)
+TYPICAL_JOB_RUNTIME = 300
 
 # Redis hash used for tracking running jobs
 RUNNING_JOBS_HASH = "running_jobs"
@@ -123,6 +136,9 @@ def dashboard():
     filename = None
     email = session["email"]
     mode = None
+    row_count = None
+    duration_estimate = None
+    queue_eta = None
 
 
     if request.method == "POST":
@@ -159,7 +175,14 @@ def dashboard():
                         "⚠️ A job is already running for this account. Please cancel it before queuing another.",
                         "error",
                     )
-                    return render_template("dashboard.html", filename=None, selected_mode=mode)
+                    return render_template(
+                        "dashboard.html",
+                        filename=None,
+                        selected_mode=mode,
+                        row_count=row_count,
+                        duration_estimate=duration_estimate,
+                        queue_eta=queue_eta,
+                    )
             except NoSuchJobError:
                 pass  # Remove stale key below
             remove_job_id(email)
@@ -174,13 +197,36 @@ def dashboard():
 
             if not success:
                 flash("❌ Failed to upload prompts Excel file to cloud storage", "error")
-                return render_template("dashboard.html", filename=None, selected_mode=mode)
+                return render_template(
+                    "dashboard.html",
+                    filename=None,
+                    selected_mode=mode,
+                    row_count=row_count,
+                    duration_estimate=duration_estimate,
+                    queue_eta=queue_eta,
+                )
+
+            # Count rows for ETA calculations
+            try:
+                excel_stream.seek(0)
+                df = pd.read_excel(excel_stream)
+                row_count = len(df.get("prompt", df.iloc[:,0]).dropna())
+            except Exception as e:
+                print("Row count failed", e)
+                row_count = 0
 
             # 🚚 Generate a temporary download URL for the worker
             presigned_url = generate_presigned_url(key)
             if not presigned_url:
                 flash("❌ Failed to generate presigned URL", "error")
-                return render_template("dashboard.html", filename=None, selected_mode=mode)
+                return render_template(
+                    "dashboard.html",
+                    filename=None,
+                    selected_mode=mode,
+                    row_count=row_count,
+                    duration_estimate=duration_estimate,
+                    queue_eta=queue_eta,
+                )
 
             # File was uploaded — you can display the filename
             filename = file.filename
@@ -197,7 +243,14 @@ def dashboard():
                 settings_stream = download_file_obj(f"Users/{email}/settings.json")
                 if not settings_stream:
                     flash("❌ Failed to download settings from cloud storage", "error")
-                    return render_template("dashboard.html", filename=filename, selected_mode=mode)
+                    return render_template(
+                        "dashboard.html",
+                        filename=filename,
+                        selected_mode=mode,
+                        row_count=row_count,
+                        duration_estimate=duration_estimate,
+                        queue_eta=queue_eta,
+                    )
                 settings = json.load(settings_stream)
                 for k, v in settings.items():
                     env_key = k.replace(" ", "_")
@@ -205,7 +258,20 @@ def dashboard():
 
             except Exception as e:
                 flash(f"⚠️ Failed to load settings: {e}", "error")
-                return render_template("dashboard.html", filename=filename, selected_mode=mode)
+                return render_template(
+                    "dashboard.html",
+                    filename=filename,
+                    selected_mode=mode,
+                    row_count=row_count,
+                    duration_estimate=duration_estimate,
+                    queue_eta=queue_eta,
+                )
+
+            # Estimate duration and queue start
+            per_prompt = MODE_RUNTIME.get(mode, 60)
+            duration_estimate = int((row_count * per_prompt) / 60)
+            queued_ahead = q.count
+            queue_eta = int((queued_ahead * TYPICAL_JOB_RUNTIME) / 60)
 
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
@@ -224,7 +290,15 @@ def dashboard():
             else:
                 flash("❌ Invalid mode selected.", "error")
 
-    return render_template("dashboard.html", filename=filename, selected_mode=mode, just_logged_in=session.pop("just_logged_in", False))
+    return render_template(
+        "dashboard.html",
+        filename=filename,
+        selected_mode=mode,
+        row_count=row_count,
+        duration_estimate=duration_estimate,
+        queue_eta=queue_eta,
+        just_logged_in=session.pop("just_logged_in", False),
+    )
 
 
 @app.route("/live_output")
@@ -237,6 +311,12 @@ def live_output():
     if not logs:
         return "Waiting for output..."
     return "\n".join(m.decode() for m in logs)
+
+
+@app.route("/queue_length")
+def queue_length():
+    """Return current number of queued jobs."""
+    return {"count": q.count}
 
 @app.route("/Users/<path:filepath>")
 def uploaded_file(filepath):
