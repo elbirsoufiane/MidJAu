@@ -35,3 +35,18 @@ secrets):
   `LICENSE_VALIDATION_URL`
 
 Set them with `fly secrets set` before deploying.
+
+
+### Commands to deploy app and worker
+
+fly deploy --app midjau-web
+
+fly deploy --config fly.worker.toml --dockerfile worker.dockerfile --app midjau-worker --no-cache
+
+### Commands to show logs
+fly logs --app midjau-web
+fly logs --app midjau-worker
+
+### How much time it takes to run one prompt
+U1 mode: ~42 seconds per prompt (on average)
+All mode: ~58 seconds per prompt (on average)

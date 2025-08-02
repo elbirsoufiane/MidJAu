@@ -7,7 +7,6 @@
 <h2 class="title">📊 Dashboard</h2>
 
 <form method="POST" enctype="multipart/form-data" onsubmit="return handleSubmit();">
-
     <label class="form-label">Upload Prompts File (.xlsx):</label>
     <input type="file" name="prompt_file" id="fileInput" required>
 
@@ -27,50 +26,42 @@
       <button type="button" id="cancel-script-btn" class="save-btn">Cancel</button>
     </div>
 
-    {% if row_count is not none %}
-    <div id="estimate-info" style="text-align:center; margin-top:10px;">
-      <div>Prompts: {{ row_count }} | Est. run time: {{ duration_estimate }} min</div>
-      <div id="queue-info">Job starts in ~{{ queue_eta }} min</div>
+    <div id="queue-eta-area" style="text-align:center; margin-top:10px;">
+      {% if queue_position is not none %}
+        <p>
+          {% if queue_position == 0 %}
+            <b>Your job is running now!</b>
+          {% else %}
+            <b>Your job starts in ~<span id="eta-minutes">{{ queue_eta_minutes }}</span> min (position: <span id="queue-position">{{ queue_position }}</span> in the queue)</b>
+          {% endif %}
+        </p>
+      {% else %}
+        <p>No job found in the queue for this account.</p>
+      {% endif %}
     </div>
-    {% endif %}
-    
 </form>
 
 <h3 style="margin-top: 40px;">🖨 Output:</h3>
-
 <div class="output-box" id="outputBox" style="max-width: 800px; max-height: 200px; margin: auto;">Waiting to start...</div>
 
-<!-- ✅ Clear Output Button (styled and centered like Run Script) -->
 <button onclick="clearOutput()" class="save-btn" style="margin: 20px auto 0 auto; display: block;">🧹 Clear Output</button>
-
-<!-- Optional status display -->
 <div id="status-msg" style="margin-top: 10px; font-style: italic; text-align: center;"></div>
 <div id="login-flag" data-just-logged-in="{{ just_logged_in | lower }}"></div>
 
 <script>
-  
   let outputCleared = false;
-  // ❗ Suppress ZIP + toast if page was just reloaded
   let suppressDownload = true;
-
   const justLoggedIn = document.getElementById("login-flag")?.dataset.justLoggedIn === "true";
 
-
-  // ✅ Reset script state after login
   if (justLoggedIn) {
     localStorage.setItem("scriptRunning", "false");
     sessionStorage.removeItem("scriptStarted");
   }
 
-
-  // ✅ If script is running in this session, allow auto-download
   if (sessionStorage.getItem("scriptStarted") === "true") {
     suppressDownload = false;
   }
 
-
-
-  // 🔁 Clear login flag after first load
   if (justLoggedIn) {
     const loginFlagDiv = document.getElementById("login-flag");
     if (loginFlagDiv) {
@@ -78,23 +69,34 @@
     }
   }
 
-  const form = document.querySelector("form");
   const runBtn = document.getElementById("run-script-btn");
   const clearBtn = document.querySelector('button[onclick="clearOutput()"]');
-  const statusMsg = document.getElementById("status-msg");
   const outputBox = document.getElementById("outputBox");
-  const queueInfo = document.getElementById("queue-info");
 
-  if (queueInfo) {
-    const avgJob = 5; // minutes per job
-    setInterval(() => {
-      fetch("/queue_length")
-        .then(r => r.json())
-        .then(d => {
-          queueInfo.textContent = `Job starts in ~${Math.ceil(d.count * avgJob)} min`;
-        });
-    }, 5000);
+  // Live ETA update from backend
+  function updateQueueEta() {
+    fetch('/queue_eta')
+      .then(res => res.json())
+      .then(data => {
+        let msg = "";
+        if (data.position !== undefined && data.position !== null) {
+          if (data.position === 0) {
+            msg = "<b>Your job is running now!</b>";
+          } else {
+            msg = `<b>Your job starts in ~<span id="eta-minutes">${data.eta_minutes}</span> min (position: <span id="queue-position">${data.position}</span> in the queue)</b>`;
+          }
+        } else {
+          msg = "No job found in the queue for this account.";
+        }
+        document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
+      })
+      .catch(e => {
+        // Optionally handle fetch errors
+        console.error("Queue ETA update failed:", e);
+      });
   }
+  setInterval(updateQueueEta, 10000);  // every 10 seconds
+  updateQueueEta();  // also run on page load
 
   // Persist state across page reloads using localStorage
   if (localStorage.getItem("scriptRunning") === "true") {
@@ -111,7 +113,7 @@
     runBtn.textContent = "Processing...";
     clearBtn.disabled = true;
     clearBtn.textContent = "Processing...";
-    return true;  // allow form to submit
+    return true;
   }
 
   function clearOutput() {
@@ -121,12 +123,11 @@
     }
   }
 
-  // 🔁 Poll for log updates
+  // Poll for log updates
   let scriptJustCompleted = false;
 
   setInterval(() => {
     if (outputCleared) return;
-
     fetch("/live_output")
       .then(response => response.text())
       .then(data => {
@@ -141,72 +142,47 @@
           clearBtn.textContent = "🧹 Clear Output";
         }
 
-        // ✅ Trigger once when script completes
-          if (data.includes("✅ Execution completed.") && !scriptJustCompleted && !suppressDownload) {
-
+        if (data.includes("✅ Execution completed.") && !scriptJustCompleted && !suppressDownload) {
           scriptJustCompleted = true;
-
-          // 🔥 Remove Flask flash message from DOM
           const flashDiv = document.getElementById("flash-message");
           if (flashDiv) flashDiv.remove();
-
           showToast("🟢 Images have been generated successfully!", "success");
-
-
-
           setTimeout(() => {
-            // ✅ Trigger ZIP download
             window.location.href = "/download_zip";
-
-            // ✅ Check if failed Excel exists
             fetch("/download_failed_prompts_excel", { method: "HEAD" })
               .then(res => {
                 if (res.ok) {
-                  console.log("📥 Found failed Excel. Downloading...");
                   const excelLink = document.createElement("a");
                   excelLink.href = "/download_failed_prompts_excel";
                   excelLink.download = "failed_prompts.xlsx";
                   document.body.appendChild(excelLink);
                   excelLink.click();
                   document.body.removeChild(excelLink);
-                } else {
-                  console.log("✅ No failed Excel file.");
                 }
               })
               .catch(err => console.error("Failed prompt check error:", err));
-
-            // ✅ Trigger cleanup after download
             setTimeout(() => {
               fetch("/cleanup_files", { method: "POST" })
                 .then(res => res.text())
                 .then(msg => console.log(msg))
                 .catch(err => console.error("Cleanup failed:", err));
-
               sessionStorage.removeItem("scriptStarted");
             }, 2000);
-
           }, 2000);
-
-
-          }
-
-
-        // ✅ Reset trigger if a new script starts
+        }
         if (data.includes("Midjourney") && !data.includes("✅ Execution completed.")) {
           scriptJustCompleted = false;
         }
       });
   }, 2000);
 
-  // 🎯 Mode selection buttons
+  // Mode selection buttons
   const buttons = document.querySelectorAll(".mode-btn");
   const hiddenInput = document.getElementById("selectedMode");
-
   buttons.forEach(btn => {
     if (btn.getAttribute("data-mode") === hiddenInput.value) {
       btn.classList.add("selected");
     }
-
     btn.addEventListener("click", () => {
       buttons.forEach(b => b.classList.remove("selected"));
       btn.classList.add("selected");
@@ -215,33 +191,24 @@
   });
 
   document.getElementById("cancel-script-btn").addEventListener("click", () => {
-  fetch("/cancel", { method: "POST" })
-    .then(response => response.text())
-    .then(data => {
-      showToast("🛑 " + data, "error");
-
-      // Reset UI state
-      localStorage.setItem("scriptRunning", "false");
-      runBtn.disabled = false;
-      runBtn.textContent = "Start";
-      clearBtn.disabled = false;
-      clearBtn.textContent = "🧹 Clear Output";
-
-      // ✅ Prevent polling from rewriting the output
-      outputCleared = true;
-
-      // 🧹 Clear output box
-      outputBox.textContent = '';
-
-      // ❌ Remove any flash message
-      const flash = document.getElementById("flash-message");
-      if (flash) flash.remove();
-    })
-    .catch(err => {
-      showToast("❌ Cancel failed.", "error");
-    });
-});
-
+    fetch("/cancel", { method: "POST" })
+      .then(response => response.text())
+      .then(data => {
+        showToast("🛑 " + data, "error");
+        localStorage.setItem("scriptRunning", "false");
+        runBtn.disabled = false;
+        runBtn.textContent = "Start";
+        clearBtn.disabled = false;
+        clearBtn.textContent = "🧹 Clear Output";
+        outputCleared = true;
+        outputBox.textContent = '';
+        const flash = document.getElementById("flash-message");
+        if (flash) flash.remove();
+      })
+      .catch(err => {
+        showToast("❌ Cancel failed.", "error");
+      });
+  });
 </script>
 
 {% endblock %}

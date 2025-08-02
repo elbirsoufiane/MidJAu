@@ -32,6 +32,7 @@ from app.tigris_utils import (
     delete_file,
 )
 import pandas as pd
+from rq import Worker
 
 
 
@@ -56,11 +57,11 @@ q = Queue(connection=redis_conn)
 
 # Rough per-prompt runtimes (seconds) for each mode
 MODE_RUNTIME = {
-    "U1": 60,
-    "U2": 60,
-    "U3": 60,
-    "U4": 60,
-    "All": 80,
+    "U1": 42,
+    "U2": 42,
+    "U3": 42,
+    "U4": 42,
+    "All": 58,
 }
 
 # Average runtime of a queued job in seconds (for ETA of queue start)
@@ -90,6 +91,99 @@ def clear_job_id_on_success(job, connection, result):
     email = job.meta.get("user_email")
     if email:
         remove_job_id(email)
+
+def estimate_queue_eta_parallel(email, q, redis_conn, num_workers=1):
+    """
+    Returns (position_in_queue, eta_minutes)
+    - position_in_queue: 0 = running, 1 = next, 2 = after, etc
+    - eta_minutes: estimated wait time in minutes until user's job starts
+    """
+    jobs = q.jobs  # queued jobs, oldest first
+    running_job_ids = q.started_job_registry.get_job_ids()
+    job_list = []
+
+    # Add currently running jobs first (oldest first)
+    for job_id in running_job_ids:
+        try:
+            job = Job.fetch(job_id, connection=redis_conn)
+            job_list.append(job)
+        except Exception:
+            pass
+
+    # Add queued jobs
+    for job in jobs:
+        job_list.append(job)
+
+    # Estimate remaining time for each running job
+    worker_available_at = [0] * num_workers
+    idx = 0
+    user_position = None
+    eta_seconds = 0
+
+    for job in job_list:
+        meta = getattr(job, 'meta', {})
+        mode = meta.get("mode")
+        prompts = meta.get("total_prompts")
+        job_email = meta.get("user_email")
+        completed = meta.get("completed_prompts", 0)
+
+        # fallback for old jobs
+        if not prompts and hasattr(job, 'args') and len(job.args) >= 2:
+            prompts = job.args[2]
+        if not mode and hasattr(job, 'args') and len(job.args) >= 1:
+            mode = job.args[0]
+
+        per_prompt = MODE_RUNTIME.get(mode, 60)
+
+        # Calculate remaining time
+        if idx < num_workers:
+            # For running jobs, use remaining only
+            remaining = (prompts or 0) - (completed or 0)
+            if remaining < 0:
+                remaining = 0
+            job_time = remaining * per_prompt
+            worker_available_at[idx] = job_time
+        else:
+            # For queued jobs: assign to soonest available worker
+            soonest_worker = min(range(num_workers), key=lambda i: worker_available_at[i])
+            start_time = worker_available_at[soonest_worker]
+            job_time = (prompts or 0) * per_prompt
+            worker_available_at[soonest_worker] += job_time
+
+            if job_email == email and user_position is None:
+                user_position = idx
+                eta_seconds = start_time
+
+        if job_email == email and user_position is None:
+            # If user's job is running now
+            user_position = idx
+            eta_seconds = 0
+
+        idx += 1
+
+    eta_minutes = int(eta_seconds / 60)
+    return user_position, eta_minutes
+
+
+def get_active_worker_count(redis_conn, queue_name="default"):
+    """
+    Returns the number of active RQ workers listening to the given queue.
+    """
+    # Worker.all() returns all workers known to Redis (not just the current process)
+    return sum(queue_name in worker.queue_names() for worker in Worker.all(connection=redis_conn))
+
+@app.route('/queue_eta')
+def queue_eta():
+    if "email" not in session:
+        return {"error": "Unauthorized"}, 401
+    email = session["email"]
+    num_workers = get_active_worker_count(redis_conn)
+    # Fallback: Ensure at least 1 worker to avoid division by zero
+    if not num_workers:
+        num_workers = 1
+    position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
+    return {"position": position, "eta_minutes": eta_minutes}
+
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -133,12 +227,49 @@ def dashboard():
     if "email" not in session:
         return redirect(url_for("login"))
 
-    filename = None
+    # filename = None
+    # email = session["email"]
+    # mode = None
+    # row_count = None
+    # duration_estimate = None
+    # queue_eta = None
+
     email = session["email"]
+
+    # 👇 If this is a GET, use counters from session (if present)
+    if request.method == "GET":
+        context = session.pop('dashboard_counters', None)
+        print("🔎 dashboard_counters found in session (popped):", context, flush=True)
+        if not context:
+            context = {
+                'filename': None,
+                'selected_mode': None,
+                'row_count': None,
+                'duration_estimate': None,
+                'queue_eta': None,
+            }
+
+        num_workers = get_active_worker_count(redis_conn)
+        if not num_workers:
+            num_workers = 1    
+        position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
+        print("🖥️ Rendering dashboard with context:", context, flush=True)
+
+        return render_template(
+            "dashboard.html",
+            **context,
+            just_logged_in=session.pop("just_logged_in", False),
+            queue_position=position,
+            queue_eta_minutes=eta_minutes,
+        )
+
+    # Otherwise, continue with POST logic...
+    filename = None
     mode = None
     row_count = None
     duration_estimate = None
     queue_eta = None
+
 
 
     if request.method == "POST":
@@ -187,14 +318,54 @@ def dashboard():
                 pass  # Remove stale key below
             remove_job_id(email)
 
-        if file:
+        # if file:
 
-            # Prepare in-memory file for Tigris
-            excel_stream = BytesIO(file.read())
+        #     # Prepare in-memory file for Tigris
+        #     excel_stream = BytesIO(file.read())
+        #     key = f"Users/{email}/prompts.xlsx"
+
+        #     success = upload_file_obj(excel_stream, key)
+
+        #     if not success:
+        #         flash("❌ Failed to upload prompts Excel file to cloud storage", "error")
+        #         return render_template(
+        #             "dashboard.html",
+        #             filename=None,
+        #             selected_mode=mode,
+        #             row_count=row_count,
+        #             duration_estimate=duration_estimate,
+        #             queue_eta=queue_eta,
+        #         )
+
+        #     # Count rows for ETA calculations
+        #     # try:
+        #     #     excel_stream.seek(0)
+        #     #     df = pd.read_excel(excel_stream)
+        #     #     row_count = len(df.get("prompt", df.iloc[:,0]).dropna())
+        #     # except Exception as e:
+        #     #     print("Row count failed", e)
+        #     #     row_count = 0
+
+        #     try:
+        #         excel_stream.seek(0)
+        #         df = pd.read_excel(excel_stream)
+        #         if "prompt" in df.columns:
+        #             row_count = df["prompt"].dropna().size
+        #         else:
+        #             row_count = len(df)
+        #     except Exception as e:
+        #         print("Row count failed", e)
+        #         row_count = 0
+
+        if file:
+            file_bytes = file.read()
+            # Two independent streams
+            excel_stream_upload = BytesIO(file_bytes)
+            excel_stream_pandas = BytesIO(file_bytes)
             key = f"Users/{email}/prompts.xlsx"
 
-            success = upload_file_obj(excel_stream, key)
-
+            # Upload to Tigris
+            success = upload_file_obj(excel_stream_upload, key)
             if not success:
                 flash("❌ Failed to upload prompts Excel file to cloud storage", "error")
                 return render_template(
@@ -206,14 +377,18 @@ def dashboard():
                     queue_eta=queue_eta,
                 )
 
-            # Count rows for ETA calculations
+            # Count rows using pandas (with a fresh, untouched BytesIO)
             try:
-                excel_stream.seek(0)
-                df = pd.read_excel(excel_stream)
-                row_count = len(df.get("prompt", df.iloc[:,0]).dropna())
+                df = pd.read_excel(excel_stream_pandas)
+                if "prompt" in df.columns:
+                    row_count = df["prompt"].dropna().size
+                else:
+                    row_count = len(df)
             except Exception as e:
                 print("Row count failed", e)
                 row_count = 0
+
+    
 
             # 🚚 Generate a temporary download URL for the worker
             presigned_url = generate_presigned_url(key)
@@ -270,7 +445,7 @@ def dashboard():
             # Estimate duration and queue start
             per_prompt = MODE_RUNTIME.get(mode, 60)
             duration_estimate = int((row_count * per_prompt) / 60)
-            queued_ahead = q.count
+            queued_ahead = int(q.count)
             queue_eta = int((queued_ahead * TYPICAL_JOB_RUNTIME) / 60)
 
 
@@ -283,10 +458,29 @@ def dashboard():
                     job_timeout=3600,
                     result_ttl=0,
                     on_success=clear_job_id_on_success,
-                    meta={"user_email": email},
+                    meta={
+                        "user_email": email,
+                        "mode": mode,
+                        "total_prompts": row_count,   # row_count is number of prompts for this job
+                        "completed_prompts": 0,       # Optional; update from worker as the job progresses
+                    },
                 )
                 set_job_id(email, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
+
+                session['dashboard_counters'] = {
+                    'filename': filename,
+                    'selected_mode': mode,
+                    'row_count': row_count,
+                    'duration_estimate': duration_estimate,
+                    'queue_eta': queue_eta,
+                }
+
+                print("🚩 Set dashboard_counters in session:", session['dashboard_counters'], flush=True)
+
+
+                return redirect(url_for("dashboard"))
+
             else:
                 flash("❌ Invalid mode selected.", "error")
 
@@ -316,7 +510,7 @@ def live_output():
 @app.route("/queue_length")
 def queue_length():
     """Return current number of queued jobs."""
-    return {"count": q.count}
+    return {"count": int(q.count)}
 
 @app.route("/Users/<path:filepath>")
 def uploaded_file(filepath):
