@@ -328,6 +328,15 @@ def main(user_email: str | None = None, prompts_file: str | None = None):
         time.sleep(1)
         log("\n↓↓↓ Starting to send prompts:")
         process_batch(batch, i + 1)
+        
+        # --- Cumulative Progress Update ---
+        job = get_current_job()
+        if job:
+            completed = min(i + len(batch), len(prompts))
+            job.meta["completed_prompts"] = completed
+            job.save_meta()
+            log(f"🔄 Progress updated: {completed} / {len(prompts)} prompts completed")
+
         clear_discord_channel()
 
     mins, secs = divmod(int(time.time() - start), 60)

@@ -165,6 +165,7 @@ def estimate_queue_eta_parallel(email, q, redis_conn, num_workers=1):
     return user_position, eta_minutes
 
 
+
 def get_active_worker_count(redis_conn, queue_name="default"):
     """
     Returns the number of active RQ workers listening to the given queue.
@@ -183,6 +184,50 @@ def queue_eta():
         num_workers = 1
     position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
     return {"position": position, "eta_minutes": eta_minutes}
+
+
+@app.route('/job_progress')
+def job_progress():
+    if "email" not in session:
+        return {"error": "Unauthorized"}, 401
+
+    email = session["email"]
+    job_id = get_job_id(email)
+    if not job_id:
+        return {"status": "none"}
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+    except NoSuchJobError:
+        remove_job_id(email)
+        return {"status": "none"}
+
+    if job.get_status() == "started":
+        meta = job.meta
+        completed = meta.get("completed_prompts", 0)
+        total = meta.get("total_prompts", 0)
+        mode = meta.get("mode")
+        per_prompt = MODE_RUNTIME.get(mode, 60)
+        remaining = max(0, total - completed)
+        remaining_seconds = remaining * per_prompt
+        return {
+            "status": "running",
+            "completed_prompts": completed,
+            "total_prompts": total,
+            "remaining_seconds": remaining_seconds
+        }
+    elif job.get_status() == "queued":
+        meta = job.meta
+        total = meta.get("total_prompts", 0)
+        mode = meta.get("mode")
+        per_prompt = MODE_RUNTIME.get(mode, 60)
+        duration_estimate = total * per_prompt
+        return {
+            "status": "queued",
+            "total_prompts": total,
+            "duration_estimate": duration_estimate
+        }
+    else:
+        return {"status": job.get_status()}
 
 
 

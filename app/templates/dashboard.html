@@ -36,9 +36,11 @@
           {% endif %}
         </p>
       {% else %}
-        <p>No job found in the queue for this account.</p>
+        <p>Not running! Upload an Excel file, select your mode and hit Start.</p>
       {% endif %}
     </div>
+  
+    <div id="job-eta-box" style="text-align:center; margin-top:5px;"></div>
 </form>
 
 <h3 style="margin-top: 40px;">🖨 Output:</h3>
@@ -86,7 +88,7 @@
             msg = `<b>Your job starts in ~<span id="eta-minutes">${data.eta_minutes}</span> min (position: <span id="queue-position">${data.position}</span> in the queue)</b>`;
           }
         } else {
-          msg = "No job found in the queue for this account.";
+          msg = "Not running! Upload an Excel file, select your mode and hit Start";
         }
         document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
       })
@@ -97,6 +99,34 @@
   }
   setInterval(updateQueueEta, 10000);  // every 10 seconds
   updateQueueEta();  // also run on page load
+
+
+  function updateJobProgress() {
+    fetch('/job_progress')
+      .then(res => res.json())
+      .then(data => {
+        let etaBox = document.getElementById("job-eta-box");
+        if (!etaBox) return;
+        if (data.status === "running") {
+          const min = Math.ceil(data.remaining_seconds / 60);
+          etaBox.innerHTML = `<b>Estimated time remaining: ${min} min</b> (${data.completed_prompts} / ${data.total_prompts} prompts done)`;
+        } else if (data.status === "queued") {
+          const min = Math.ceil(data.duration_estimate / 60);
+          etaBox.innerHTML = `<b>Estimated run time: ${min} min</b> (starts after queue)`;
+        } else {
+          etaBox.innerHTML = "";
+        }
+      })
+      .catch(() => {
+        // Optionally show "unknown" state
+        document.getElementById("job-eta-box").innerHTML = "";
+      });
+  }
+
+  setInterval(updateJobProgress, 10000);
+  updateJobProgress();
+
+
 
   // Persist state across page reloads using localStorage
   if (localStorage.getItem("scriptRunning") === "true") {

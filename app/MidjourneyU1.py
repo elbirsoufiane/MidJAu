@@ -275,6 +275,16 @@ def main(user_email: str, prompts_file: str):
         except Exception as e:
             log("⚠️ Clear after batch failed:", e)
 
+        # --- Cumulative Progress Update ---
+        job = get_current_job()
+        if job:
+            completed = min(i + len(batch), len(prompts))
+            job.meta["completed_prompts"] = completed
+            job.meta["total_prompts"] = len(prompts)  # ensures it's always present
+            job.save_meta()
+            log(f"🔄 Progress updated: {completed} / {len(prompts)} prompts completed")
+    
+
     total = time.time() - start
 
     # log("✅ Execution completed. Images saved in a ZIP folder under Downloads. If there were failed prompts, an Excel file has also been downloaded.")
