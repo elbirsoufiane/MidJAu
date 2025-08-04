@@ -390,3 +390,159 @@ class MidjourneyRunner:
             f"\n⏱️ The run took {int(total // 60)} min {int(total % 60)} sec to complete."
         )
 
+
+class MidjourneyRunnerAll(MidjourneyRunner):
+    """Runner that triggers and saves all U1–U4 variants in one pass."""
+
+    def __init__(self):
+        super().__init__("All")
+
+    def download_variant_image(self, url, index, variant):
+        """Download an image for a specific upscaled variant."""
+        ext = os.path.splitext(urlparse(url).path)[1]
+        res = requests.get(url)
+        if res.status_code == 200:
+            filepath = os.path.join(self.OUTPUT_DIR, f"{index}_{variant}{ext}")
+            with open(filepath, "wb") as f:
+                f.write(res.content)
+            return filepath
+        return None
+
+    def process_batch(self, batch, start_index):
+        queue = []
+        for i, prompt in enumerate(batch):
+            self.check_cancel()
+            if i > 0:
+                self.log("⏳ Waiting before sending the next prompt...")
+                time.sleep(20)
+            session_id = self.send_prompt(prompt)
+            if session_id:
+                queue.append(
+                    {
+                        "prompt": prompt,
+                        "session_id": session_id,
+                        "message_ids": {},
+                        "clicked": {"U1": False, "U2": False, "U3": False, "U4": False},
+                        "saved": {"U1": False, "U2": False, "U3": False, "U4": False},
+                        "cdn_urls": {},
+                        "prompt_index": start_index + i,
+                    }
+                )
+
+        time.sleep(30)
+        self.log("\n👁 Triggering upscaled images is in progress...")
+        for _ in range(len(queue)):
+            self.check_cancel()
+            messages = self.get_messages(100)
+            for msg in reversed(messages):
+                if msg.get("author", {}).get("id") != self.MIDJOURNEY_APP_ID:
+                    continue
+                comps = msg.get("components", [])
+                if not comps:
+                    continue
+                content = msg.get("content", "").lower()
+                for btn in comps[0].get("components", []):
+                    label = btn.get("label", "")
+                    if label not in {"U1", "U2", "U3", "U4"}:
+                        continue
+                    for q in queue:
+                        if q["clicked"][label]:
+                            continue
+                        sim = difflib.SequenceMatcher(
+                            None, content, q["prompt"].lower()
+                        ).ratio()
+                        if sim > 0.7:
+                            self.trigger_button(btn["custom_id"], msg["id"])
+                            q["message_ids"][label] = msg["id"]
+                            q["clicked"][label] = True
+                            time.sleep(1)
+                            break
+            if all(
+                all(q["clicked"][u] for u in ("U1", "U2", "U3", "U4"))
+                for q in queue
+            ):
+                break
+            time.sleep(10)
+
+        self.log("\n✅ Upscaled images triggered, waiting for images to save...")
+        time.sleep(30)
+        for _ in range(len(queue)):
+            self.check_cancel()
+            messages = self.get_messages()
+            for msg in reversed(messages):
+                if msg.get("author", {}).get("id") != self.MIDJOURNEY_APP_ID:
+                    continue
+                attachments = msg.get("attachments", [])
+                if not attachments:
+                    continue
+                content = msg.get("content", "").lower()
+                for q in queue:
+                    if all(q["saved"].values()):
+                        continue
+                    if (
+                        difflib.SequenceMatcher(
+                            None, content, q["prompt"].lower()
+                        ).ratio()
+                        < 0.7
+                    ):
+                        continue
+                    for i in range(1, 5):
+                        if f"image #{i}" in content:
+                            label = f"U{i}"
+                            if q["saved"][label]:
+                                continue
+                            url = attachments[0]["url"]
+                            filepath = self.download_variant_image(
+                                url, q["prompt_index"], label
+                            )
+                            if filepath:
+                                q["cdn_urls"][label] = url
+                                q["saved"][label] = True
+                                self.log(
+                                    f"💾 Saved {os.path.basename(filepath)} for prompt {q['prompt_index']}"
+                                )
+                            break
+            if all(
+                all(q["saved"][u] for u in ("U1", "U2", "U3", "U4"))
+                for q in queue
+            ):
+                break
+            time.sleep(8)
+
+        self.log(
+            "\nGetting the saved images ready to download and logging any failed prompts..."
+        )
+        failed = [
+            {
+                "index": q["prompt_index"],
+                "prompt": q["prompt"],
+                "variant_u1": q["cdn_urls"].get("U1") if not q["saved"]["U1"] else None,
+                "variant_u2": q["cdn_urls"].get("U2") if not q["saved"]["U2"] else None,
+                "variant_u3": q["cdn_urls"].get("U3") if not q["saved"]["U3"] else None,
+                "variant_u4": q["cdn_urls"].get("U4") if not q["saved"]["U4"] else None,
+            }
+            for q in queue
+            if not all(q["saved"].values())
+        ]
+
+        if failed:
+            existing = []
+            if os.path.exists(self.FAILED_PROMPTS_PATH):
+                try:
+                    with open(self.FAILED_PROMPTS_PATH, "r") as f:
+                        existing = json.load(f)
+                except Exception:  # pragma: no cover - defensive
+                    self.log("⚠️ Failed to load failed prompts")
+            existing.extend(failed)
+
+            failed_prompts_dir = os.path.dirname(self.FAILED_PROMPTS_PATH)
+            os.makedirs(failed_prompts_dir, exist_ok=True)
+
+            with open(self.FAILED_PROMPTS_PATH, "w") as f:
+                json.dump(existing, f, indent=2)
+            self.log(
+                f"{len(failed)} failed prompts have been saved to the failed prompts file."
+            )
+        else:
+            self.log("✅ All images saved successfully.")
+
