@@ -343,9 +343,9 @@ class MidjourneyRunner:
                 job.meta["completed_prompts"] = completed
                 job.meta["total_prompts"] = len(prompts)
                 job.save_meta()
-                self.log(
-                    f"🔄 Progress updated: {completed} / {len(prompts)} prompts completed"
-                )
+                # self.log(
+                #     f"🔄 Progress updated: {completed} / {len(prompts)} prompts completed"
+                # )
 
         total = time.time() - start
 
