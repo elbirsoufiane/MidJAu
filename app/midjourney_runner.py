@@ -21,6 +21,28 @@ from .user_utils import (
 )
 
 
+def update_prompts_today(email, key, prompts_this_job):
+    """
+    Call the Apps Script endpoint to update PromptsToday for the user.
+    """
+    import os, requests
+    endpoint = os.getenv("LICENSE_VALIDATION_URL")
+    payload = {
+        "email": email,
+        "key": key,
+        "promptsThisJob": prompts_this_job
+    }
+    try:
+        r = requests.post(endpoint, json=payload, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        print("✅ PromptsToday updated:", data, flush=True)
+        return data
+    except Exception as e:
+        print("⚠️ Failed to update PromptsToday:", e, flush=True)
+        return None
+
+
 class MidjourneyRunner:
     """Context object for running a single Midjourney job.
 
@@ -281,7 +303,8 @@ class MidjourneyRunner:
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
-    def run(self, user_email: str, prompts_file: str):
+    # def run(self, user_email: str, prompts_file: str):
+    def run(self, user_email: str, prompts_file: str, key: str):    
         self.OUTPUT_DIR = get_user_images_dir(user_email)
         self.FAILED_PROMPTS_PATH = get_user_failed_prompts_path(user_email)
         self.LOG_KEY = get_user_log_key(user_email)
@@ -389,6 +412,7 @@ class MidjourneyRunner:
         self.log(
             f"\n⏱️ The run took {int(total // 60)} min {int(total % 60)} sec to complete."
         )
+        update_prompts_today(user_email, key, len(prompts))
 
 
 class MidjourneyRunnerAll(MidjourneyRunner):

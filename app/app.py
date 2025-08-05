@@ -173,6 +173,20 @@ def get_active_worker_count(redis_conn, queue_name="default"):
     # Worker.all() returns all workers known to Redis (not just the current process)
     return sum(queue_name in worker.queue_names() for worker in Worker.all(connection=redis_conn))
 
+def check_license_and_quota(email, license_key):
+    params = {
+        "email": email,
+        "key": license_key
+    }
+    try:
+        resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        return resp.json()  # Should have success, tier, dailyQuota, jobQuota, promptsToday
+    except Exception as e:
+        print(f"License/Quota check error: {e}")
+        return {"success": False, "reason": "Quota check failed"}
+    
+
 @app.route('/queue_eta')
 def queue_eta():
     if "email" not in session:
@@ -322,6 +336,12 @@ def dashboard():
         email = session["email"]
         key = session.get("saved_key") or session.get("key")
 
+        # 1. Call the Apps Script to get quotas
+        license_info = check_license_and_quota(email, key)
+        if not license_info.get("success"):
+            flash("❌ License check/validation failed. Please try again.", "error")
+            return redirect(url_for("dashboard"))
+
 
         try:
             response = requests.get(
@@ -433,7 +453,32 @@ def dashboard():
                 print("Row count failed", e)
                 row_count = 0
 
-    
+            # 2. Enforce quotas
+            job_quota = int(license_info.get("jobQuota", 0))
+            daily_quota = int(license_info.get("dailyQuota", 0))
+            prompts_today = int(license_info.get("promptsToday", 0))
+            if row_count > job_quota:
+                flash(f"❌ Your current tier only allows {job_quota} prompts per job. Your file has {row_count}.", "error")
+                return render_template(
+                    "dashboard.html",
+                    filename=None,
+                    selected_mode=mode,
+                    row_count=row_count,
+                    duration_estimate=None,
+                    queue_eta=None,
+                )
+            if prompts_today + row_count > daily_quota:
+                flash(f"❌ Daily quota exceeded! You have used {prompts_today}/{daily_quota} prompts today.", "error")
+                return render_template(
+                    "dashboard.html",
+                    filename=None,
+                    selected_mode=mode,
+                    row_count=row_count,
+                    duration_estimate=None,
+                    queue_eta=None,
+                )
+                
+
 
             # 🚚 Generate a temporary download URL for the worker
             presigned_url = generate_presigned_url(key)
@@ -495,11 +540,14 @@ def dashboard():
 
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
+                key = session.get("saved_key") or session.get("key")
+                print("🔎 ENQUEUE: key =", key)
                 job = q.enqueue(
                     run_mode,
                     mode,
                     email,
                     presigned_url,
+                    key,
                     job_timeout=3600,
                     result_ttl=0,
                     on_success=clear_job_id_on_success,
@@ -790,3 +838,5 @@ def cancel_script():
 if __name__ == "__main__":
     os.makedirs("Users", exist_ok=True)
     app.run(debug=True)
+
+
