@@ -80,3 +80,8 @@ fly secrets set \
 
 fly deploy --config fly.worker.tier1.toml --dockerfile worker.tier1.dockerfile --app midjau-worker-tier1 --no-cache
 
+
+
+
+
+git commit -m "Explain what you changed"
