@@ -136,6 +136,15 @@
     clearBtn.textContent = "Processing...";
   }
 
+  if ({{ start_failed|default(false)|tojson }}) {
+    localStorage.setItem("scriptRunning", "false");
+    sessionStorage.removeItem("scriptStarted");
+    runBtn.disabled = false;
+    runBtn.textContent = "Start";
+    clearBtn.disabled = false;
+    clearBtn.textContent = "🧹 Clear Output";
+  }
+
   function handleSubmit() {
     localStorage.setItem("scriptRunning", "true");
     sessionStorage.setItem("scriptStarted", "true");
