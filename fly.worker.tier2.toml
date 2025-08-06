@@ -1,6 +1,6 @@
-# fly.worker.toml for RQ worker
+# fly.worker.tier2.toml for RQ worker
 
-app = "midjau-worker"
+app = "midjau-worker-tier2"
 primary_region = "cdg"
 
 [build]

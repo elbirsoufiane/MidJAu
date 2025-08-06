@@ -1,0 +1,13 @@
+# fly.worker.tier1.toml for RQ worker
+
+app = "midjau-worker-tier1"
+primary_region = "cdg"
+
+[build]
+
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+

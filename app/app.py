@@ -53,7 +53,7 @@ running_processes = {}
 process_lock = Lock()
 
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
-q = Queue(connection=redis_conn)
+queue = Queue(connection=redis_conn)
 
 # Rough per-prompt runtimes (seconds) for each mode
 MODE_RUNTIME = {
@@ -98,8 +98,8 @@ def estimate_queue_eta_parallel(email, q, redis_conn, num_workers=1):
     - position_in_queue: 0 = running, 1 = next, 2 = after, etc
     - eta_minutes: estimated wait time in minutes until user's job starts
     """
-    jobs = q.jobs  # queued jobs, oldest first
-    running_job_ids = q.started_job_registry.get_job_ids()
+    jobs = queue.jobs  # queued jobs, oldest first
+    running_job_ids = queue.started_job_registry.get_job_ids()
     job_list = []
 
     # Add currently running jobs first (oldest first)
@@ -196,7 +196,7 @@ def queue_eta():
     # Fallback: Ensure at least 1 worker to avoid division by zero
     if not num_workers:
         num_workers = 1
-    position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
+    position, eta_minutes = estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=num_workers)
     return {"position": position, "eta_minutes": eta_minutes}
 
 
@@ -308,10 +308,25 @@ def dashboard():
                 'queue_eta': None,
             }
 
-        num_workers = get_active_worker_count(redis_conn)
+        key = session.get("saved_key") or session.get("key")
+        license_info = check_license_and_quota(email, key)
+        tier = license_info.get("tier", "default").lower()
+
+        # Pick queue name based on tier
+        queue_name = "default"
+        if tier in {"Tier1", "Tier2", "Tier3"}:
+            queue_name = tier
+
+        queue = Queue(name=queue_name, connection=redis_conn)
+
+        num_workers = get_active_worker_count(redis_conn, queue_name=queue_name)
         if not num_workers:
-            num_workers = 1    
-        position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
+            num_workers = 1
+
+        position, eta_minutes = estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=num_workers)
+
+
+
         print("🖥️ Rendering dashboard with context:", context, flush=True)
 
         return render_template(
@@ -338,6 +353,7 @@ def dashboard():
 
         # 1. Call the Apps Script to get quotas
         license_info = check_license_and_quota(email, key)
+        tier = license_info.get("tier", "default").lower()
         if not license_info.get("success"):
             flash("❌ License check/validation failed. Please try again.", "error")
             return redirect(url_for("dashboard"))
@@ -535,14 +551,23 @@ def dashboard():
             # Estimate duration and queue start
             per_prompt = MODE_RUNTIME.get(mode, 60)
             duration_estimate = int((row_count * per_prompt) / 60)
-            queued_ahead = int(q.count)
+            queued_ahead = int(queue.count)
             queue_eta = int((queued_ahead * TYPICAL_JOB_RUNTIME) / 60)
 
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
                 key = session.get("saved_key") or session.get("key")
                 print("🔎 ENQUEUE: key =", key)
-                job = q.enqueue(
+
+                # Select queue name based on tier (customize as needed)
+                queue_name = "default"  # fallback
+                if tier in {"Tier1", "Tier2", "Tier3"}:
+                    queue_name = tier
+
+                # Create the queue object
+                queue = Queue(name=queue_name, connection=redis_conn)
+
+                job = queue.enqueue(
                     run_mode,
                     mode,
                     email,
@@ -603,7 +628,7 @@ def live_output():
 @app.route("/queue_length")
 def queue_length():
     """Return current number of queued jobs."""
-    return {"count": int(q.count)}
+    return {"count": int(queue.count)}
 
 @app.route("/Users/<path:filepath>")
 def uploaded_file(filepath):

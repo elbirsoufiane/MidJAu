@@ -1,4 +1,4 @@
-# worker.dockerfile
+# worker.tier1.dockerfile
 FROM python:3.11-slim
 
 # 1. Install system dependencies
@@ -20,4 +20,4 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 
 # 6. Run the worker command
-CMD ["rq", "worker", "default"]
+CMD ["rq", "worker", "Tier1"]
