@@ -720,6 +720,28 @@ def settings():
     return render_template("settings.html", settings=current_settings)
 
 
+@app.route("/subscription")
+def subscription():
+    if "email" not in session:
+        return redirect(url_for("login"))
+
+    email = session["email"]
+    key   = session.get("saved_key") or session.get("key")
+
+    info = check_license_and_quota(email, key)
+    if not info.get("success"):
+        flash("⚠️ Unable to fetch subscription data.", "error")
+        return redirect(url_for("dashboard"))
+
+    details = {
+        "tier": info.get("tier"),
+        "expiry": info.get("expiry"),
+        "daily_quota": info.get("dailyQuota"),
+        "job_quota": info.get("jobQuota"),
+        "prompts_today": info.get("promptsToday"),
+    }
+    return render_template("subscription.html", details=details)
+
 
 @app.route('/download_zip')
 def download_zip():

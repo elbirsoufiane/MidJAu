@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription | MidjyAuto{% endblock %}
+
+{% block extra_style %}
+<style>
+  .sub-table {
+    margin: 0 auto;
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 500px;
+  }
+  .sub-table th, .sub-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+  }
+  .sub-table th {
+    background-color: #007bff;
+    color: white;
+    text-align: left;
+    width: 50%;
+  }
+  .sub-table tr:nth-child(even) {
+    background-color: #f2f2f2;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <h2 class="title">💳 My Subscription</h2>
+  <table class="sub-table">
+    <tr><th>Tier</th><td>{{ details.tier }}</td></tr>
+    <tr><th>Expiry Date</th><td>{{ details.expiry }}</td></tr>
+    <tr><th>Daily Quota</th><td>{{ details.daily_quota }}</td></tr>
+    <tr><th>Job Quota</th><td>{{ details.job_quota }}</td></tr>
+    <tr><th>Prompts Processed Today</th><td>{{ details.prompts_today }}</td></tr>
+  </table>
+{% endblock %}
