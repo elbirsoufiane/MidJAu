@@ -398,6 +398,8 @@ def dashboard():
             return redirect(url_for("dashboard"))
 
         # ⏩ Continue with script execution if license is still valid
+        # Clear any previous live output log before proceeding
+        redis_conn.delete(get_user_log_key(email))
         mode = request.form["mode"]
         file = request.files["prompt_file"]
 
@@ -535,9 +537,6 @@ def dashboard():
 
             # File was uploaded — you can display the filename
             filename = file.filename
-
-            # ✅ Clear old live output before starting the new job
-            redis_conn.delete(get_user_log_key(email))
 
             env = os.environ.copy()
             env["PROMPTS_FILE"] = presigned_url
