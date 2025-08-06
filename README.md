@@ -83,5 +83,7 @@ fly deploy --config fly.worker.tier1.toml --dockerfile worker.tier1.dockerfile -
 
 
 
-
+git add .
 git commit -m "Explain what you changed"
+git push
+git pull
