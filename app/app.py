@@ -508,6 +508,7 @@ def dashboard():
                     row_count=row_count,
                     duration_estimate=None,
                     queue_eta=None,
+                    start_failed=True,
                 )
             if prompts_today + row_count > daily_quota:
                 flash(f"❌ Daily quota exceeded! You have used {prompts_today}/{daily_quota} prompts today.", "error")
@@ -518,6 +519,7 @@ def dashboard():
                     row_count=row_count,
                     duration_estimate=None,
                     queue_eta=None,
+                    start_failed=True,
                 )
                 
 
