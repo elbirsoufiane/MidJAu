@@ -410,6 +410,8 @@ def dashboard():
                         row_count=row_count,
                         duration_estimate=duration_estimate,
                         queue_eta=queue_eta,
+                        queue_position=None,
+                        queue_eta_minutes=None,
                     )
             except NoSuchJobError:
                 pass  # Remove stale key below
@@ -472,6 +474,8 @@ def dashboard():
                     row_count=row_count,
                     duration_estimate=duration_estimate,
                     queue_eta=queue_eta,
+                    queue_position=None,
+                    queue_eta_minutes=None,
                 )
 
             # Count rows using pandas (with a fresh, untouched BytesIO)
@@ -499,6 +503,8 @@ def dashboard():
                     duration_estimate=None,
                     queue_eta=None,
                     start_failed=True,
+                    queue_position=None,
+                    queue_eta_minutes=None,
                 )
             if prompts_today + row_count > daily_quota:
                 flash(f"❌ Daily quota exceeded! You have used {prompts_today}/{daily_quota} prompts today.", "error")
@@ -510,6 +516,8 @@ def dashboard():
                     duration_estimate=None,
                     queue_eta=None,
                     start_failed=True,
+                    queue_position=None,
+                    queue_eta_minutes=None,
                 )
                 
 
@@ -525,6 +533,8 @@ def dashboard():
                     row_count=row_count,
                     duration_estimate=duration_estimate,
                     queue_eta=queue_eta,
+                    queue_position=None,
+                    queue_eta_minutes=None,
                 )
 
             # File was uploaded — you can display the filename
@@ -546,6 +556,8 @@ def dashboard():
                         row_count=row_count,
                         duration_estimate=duration_estimate,
                         queue_eta=queue_eta,
+                        queue_position=None,
+                        queue_eta_minutes=None,
                     )
                 settings = json.load(settings_stream)
                 for k, v in settings.items():
@@ -561,6 +573,8 @@ def dashboard():
                     row_count=row_count,
                     duration_estimate=duration_estimate,
                     queue_eta=queue_eta,
+                    queue_position=None,
+                    queue_eta_minutes=None,
                 )
 
             # Estimate duration and queue start
@@ -630,6 +644,8 @@ def dashboard():
         duration_estimate=duration_estimate,
         queue_eta=queue_eta,
         just_logged_in=session.pop("just_logged_in", False),
+        queue_position=None,
+        queue_eta_minutes=None,
     )
 
 
