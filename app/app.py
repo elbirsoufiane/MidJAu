@@ -560,6 +560,23 @@ def dashboard():
                         queue_eta_minutes=None,
                     )
                 settings = json.load(settings_stream)
+                required = [
+                    "USER TOKEN", "BOT TOKEN", "CHANNEL ID", "GUILD ID",
+                    "MIDJOURNEY APP ID", "MIDJOURNEY COMMAND ID", "COMMAND VERSION",
+                ]
+                if any(not settings.get(k) for k in required):
+                    flash("❌ Populate your settings before you can submit a job.", "error")
+                    return render_template(
+                        "dashboard.html",
+                        filename=filename,
+                        selected_mode=mode,
+                        row_count=row_count,
+                        duration_estimate=duration_estimate,
+                        queue_eta=queue_eta,
+                        start_failed=True,
+                        queue_position=None,
+                        queue_eta_minutes=None,
+                    )
                 for k, v in settings.items():
                     env_key = k.replace(" ", "_")
                     env[env_key] = v
