@@ -26,13 +26,13 @@
       <button type="button" id="cancel-script-btn" class="save-btn">Cancel</button>
     </div>
 
-    <div id="queue-eta-area" style="text-align:center; margin-top:10px;">
-      {% if queued_position is not none and queued_position > 0 %}
-        <p><b>Your job has been queued in {{ queued_mode }}</b></p>
-      {% else %}
-        <p>Not running! Upload an Excel file, select your mode and hit Start.</p>
-      {% endif %}
-    </div>
+      <div id="queue-eta-area" style="text-align:center; margin-top:10px;">
+        {% if queue_position is not none and queue_position > 0 %}
+          <p><b>Queued in {{ queued_mode }} – position {{ queue_position }}, ~{{ queue_eta_minutes }} min to start</b></p>
+        {% else %}
+          <p>Not running! Upload an Excel file, select your mode and hit Start.</p>
+        {% endif %}
+      </div>
 
     <div id="job-eta-box" style="text-align:center; margin-top:5px;"></div>
 </form>
@@ -85,7 +85,7 @@
             jobProgressInterval = setInterval(updateJobProgress, 10000);
           }
         } else if (data.position > 0) {
-          msg = `<b>Your job has been queued in ${mode}</b>`;
+          msg = `<b>Queued in ${mode} – position ${data.position}, ~${data.eta_minutes} min to start</b>`;
           if (jobProgressInterval) {
             clearInterval(jobProgressInterval);
             jobProgressInterval = null;
