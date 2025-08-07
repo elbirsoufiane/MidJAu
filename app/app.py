@@ -561,7 +561,7 @@ def dashboard():
                     )
                 settings = json.load(settings_stream)
                 required = [
-                    "USER TOKEN", "BOT TOKEN", "CHANNEL ID", "GUILD ID",
+                    "USER TOKEN", "CHANNEL ID", "GUILD ID",
                     "MIDJOURNEY APP ID", "MIDJOURNEY COMMAND ID", "COMMAND VERSION",
                 ]
                 if any(not settings.get(k) for k in required):
@@ -720,7 +720,6 @@ def settings():
     if request.method == "POST":
         new_settings = {
             "USER TOKEN": request.form.get("user_token"),
-            "BOT TOKEN": request.form.get("bot_token"),
             "CHANNEL ID": request.form.get("channel_id"),
             "GUILD ID": request.form.get("guild_id"),
             "MIDJOURNEY APP ID": request.form.get("midjourney_app_id"),
