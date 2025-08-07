@@ -82,7 +82,7 @@
           msg = "<b>Your job is running now!</b>";
           if (!jobProgressInterval) {
             updateJobProgress();
-            jobProgressInterval = setInterval(updateJobProgress, 10000);
+            jobProgressInterval = setInterval(updateJobProgress, 3000);
           }
         } else if (data.position > 0) {
           msg = `<b>Your job has been queued in ${mode}</b>`;
@@ -106,7 +106,7 @@
         console.error("Queue ETA update failed:", e);
       });
   }
-  setInterval(updateQueueEta, 10000);  // every 10 seconds
+  setInterval(updateQueueEta, 3000);  // every 10 seconds
   updateQueueEta();  // also run on page load
 
 
