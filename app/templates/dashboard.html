@@ -27,19 +27,13 @@
     </div>
 
     <div id="queue-eta-area" style="text-align:center; margin-top:10px;">
-      {% if queue_position is not none %}
-        <p>
-          {% if queue_position == 0 %}
-            <b>Your job is running now!</b>
-          {% else %}
-            <b>Your job starts in ~<span id="eta-minutes">{{ queue_eta_minutes }}</span> min (position: <span id="queue-position">{{ queue_position }}</span> in the queue)</b>
-          {% endif %}
-        </p>
+      {% if queued_position is not none and queued_position > 0 %}
+        <p><b>Your job has been queued in {{ queued_mode }}</b></p>
       {% else %}
         <p>Not running! Upload an Excel file, select your mode and hit Start.</p>
       {% endif %}
     </div>
-  
+
     <div id="job-eta-box" style="text-align:center; margin-top:5px;"></div>
 </form>
 
@@ -74,6 +68,7 @@
   const runBtn = document.getElementById("run-script-btn");
   const clearBtn = document.querySelector('button[onclick="clearOutput()"]');
   const outputBox = document.getElementById("outputBox");
+  let jobProgressInterval = null;
 
   // Live ETA update from backend
   function updateQueueEta() {
@@ -81,14 +76,28 @@
       .then(res => res.json())
       .then(data => {
         let msg = "";
-        if (data.position !== undefined && data.position !== null) {
-          if (data.position === 0) {
-            msg = "<b>Your job is running now!</b>";
-          } else {
-            msg = `<b>Your job starts in ~<span id="eta-minutes">${data.eta_minutes}</span> min (position: <span id="queue-position">${data.position}</span> in the queue)</b>`;
+        const mode = document.getElementById("selectedMode")?.value || "";
+        const etaBox = document.getElementById("job-eta-box");
+        if (data.position === 0) {
+          msg = "<b>Your job is running now!</b>";
+          if (!jobProgressInterval) {
+            updateJobProgress();
+            jobProgressInterval = setInterval(updateJobProgress, 10000);
+          }
+        } else if (data.position > 0) {
+          msg = `<b>Your job has been queued in ${mode}</b>`;
+          if (jobProgressInterval) {
+            clearInterval(jobProgressInterval);
+            jobProgressInterval = null;
+            if (etaBox) etaBox.innerHTML = "";
           }
         } else {
           msg = "Not running! Upload an Excel file, select your mode and hit Start";
+          if (jobProgressInterval) {
+            clearInterval(jobProgressInterval);
+            jobProgressInterval = null;
+            if (etaBox) etaBox.innerHTML = "";
+          }
         }
         document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
       })
@@ -110,9 +119,6 @@
         if (data.status === "running") {
           const min = Math.ceil(data.remaining_seconds / 60);
           etaBox.innerHTML = `<b>Estimated time remaining: ${min} min</b> (${data.completed_prompts} / ${data.total_prompts} prompts done)`;
-        } else if (data.status === "queued") {
-          const min = Math.ceil(data.duration_estimate / 60);
-          etaBox.innerHTML = `<b>Estimated run time: ${min} min</b> (starts after queue)`;
         } else {
           etaBox.innerHTML = "";
         }
@@ -122,9 +128,6 @@
         document.getElementById("job-eta-box").innerHTML = "";
       });
   }
-
-  setInterval(updateJobProgress, 10000);
-  updateJobProgress();
 
 
 
