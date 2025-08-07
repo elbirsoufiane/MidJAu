@@ -732,10 +732,27 @@ def subscription():
     if not info.get("success"):
         flash("⚠️ Unable to fetch subscription data.", "error")
         return redirect(url_for("dashboard"))
+    
+    # ─── NEW BLOCK ───────────────────────────────────────────────
+    expiry_raw = info.get("expiry")              # "2025-08-11T23:00:00.000Z"
+    if expiry_raw:
+        date_only      = expiry_raw[:10]         # "2025-08-11"
+        expiry_pretty  = f"{date_only} at 12:00AM CST"
+    else:
+        expiry_pretty  = "—"
+
+    # • translate numeric tier → marketing name
+    TIER_NAMES = {
+        "Tier1": "Basic",
+        "Tier2": "Pro",
+        "Tier3": "Premium",
+    }
+    pretty_tier = TIER_NAMES.get(info.get("tier"), info.get("tier", "—"))
+    # ─────────────────────────────────────────────────────────────
 
     details = {
-        "tier": info.get("tier"),
-        "expiry": info.get("expiry"),
+        "tier": pretty_tier,
+        "expiry": expiry_pretty,
         "daily_quota": info.get("dailyQuota"),
         "job_quota": info.get("jobQuota"),
         "prompts_today": info.get("promptsToday"),

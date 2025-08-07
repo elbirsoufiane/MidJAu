@@ -4,35 +4,79 @@
 
 {% block extra_style %}
 <style>
-  .sub-table {
-    margin: 0 auto;
-    border-collapse: collapse;
-    width: 100%;
-    max-width: 500px;
-  }
-  .sub-table th, .sub-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-  }
-  .sub-table th {
-    background-color: #007bff;
-    color: white;
-    text-align: left;
-    width: 50%;
-  }
-  .sub-table tr:nth-child(even) {
-    background-color: #f2f2f2;
-  }
+/* ───────── Subscription card ───────── */
+.sub-card{
+    max-width:600px;
+    margin:40px auto;
+    border:2px solid #007bff;            /* same colour / thickness as buttons */
+    border-radius:14px;
+    background:#ffffff;
+    box-shadow:0 0 0 3px rgba(0,123,255,.12); /* subtle halo */
+    overflow:hidden;
+}
+
+/* header row */
+.sub-hdr{
+    background:#007bff;
+    color:#fff;
+    padding:18px 26px;
+    font-size:20px;
+    font-weight:600;
+    letter-spacing:.3px;
+}
+
+/* data rows */
+.sub-row{
+    display:flex;             /* ← no space-between, so items hug left */
+    align-items:center;
+    gap:32px;                 /* space between label and value         */
+    padding:18px 26px;
+    font-size:16px;
+}
+.sub-row:nth-child(odd){background:#f8fafe;}  /* zebra stripe */
+
+/* cells */
+.sub-label{
+    font-weight:600;
+    color:#333;
+    min-width:200px;          /* keeps all values neatly aligned       */
+}
+.sub-val{
+    color:#111;
+    text-align:left;          /* explicit, though default in flex row  */
+}
 </style>
 {% endblock %}
 
 {% block content %}
   <h2 class="title">💳 My Subscription</h2>
-  <table class="sub-table">
-    <tr><th>Tier</th><td>{{ details.tier }}</td></tr>
-    <tr><th>Expiry Date</th><td>{{ details.expiry }}</td></tr>
-    <tr><th>Daily Quota</th><td>{{ details.daily_quota }}</td></tr>
-    <tr><th>Job Quota</th><td>{{ details.job_quota }}</td></tr>
-    <tr><th>Prompts Processed Today</th><td>{{ details.prompts_today }}</td></tr>
-  </table>
+
+  <div class="sub-card">
+     <div class="sub-hdr">Subscription Details</div>
+
+     <div class="sub-row">
+        <span class="sub-label">Tier</span>
+        <span class="sub-val">{{ details.tier }}</span>
+     </div>
+
+     <div class="sub-row">
+        <span class="sub-label">Expiry Date</span>
+        <span class="sub-val">{{ details.expiry }}</span>
+     </div>
+
+     <div class="sub-row">
+        <span class="sub-label">Daily Quota</span>
+        <span class="sub-val">{{ details.daily_quota }}</span>
+     </div>
+
+     <div class="sub-row">
+        <span class="sub-label">Job Quota</span>
+        <span class="sub-val">{{ details.job_quota }}</span>
+     </div>
+
+     <div class="sub-row">
+        <span class="sub-label">Prompts Processed Today</span>
+        <span class="sub-val">{{ details.prompts_today }}</span>
+     </div>
+  </div>
 {% endblock %}
