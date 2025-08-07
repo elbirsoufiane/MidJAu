@@ -55,7 +55,7 @@
   let suppressDownload = true;
   const justLoggedIn = document.getElementById("login-flag")?.dataset.justLoggedIn === "true";
 
-  if (justLoggedIn) {
+  if (justLoggedIn && localStorage.getItem("scriptRunning") !== "true") {
     localStorage.setItem("scriptRunning", "false");
     sessionStorage.removeItem("scriptStarted");
   }
