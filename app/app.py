@@ -319,29 +319,15 @@ def dashboard():
 
     # 👇 If this is a GET, use counters from session (if present)
     if request.method == "GET":
-        context = session.pop('dashboard_counters', None)
-        print("🔎 dashboard_counters found in session (popped):", context, flush=True)
-        if not context:
-            context = {
-                'filename': None,
-                'selected_mode': None,
-                'row_count': None,
-                'duration_estimate': None,
-                'queue_eta': None,
-            }
+        queued_info = session.pop('dashboard_counters', {})
+        print("🔎 dashboard_counters found in session (popped):", queued_info, flush=True)
+
+        selected_mode = queued_info.get('mode')
+        initial_queue_pos = queued_info.get('queue_position')
 
         key = session.get("saved_key") or session.get("key")
         license_info = check_license_and_quota(email, key)
-        tier = license_info.get("tier", "default")
         q = get_user_queue(email)
-
-
-        # # Pick queue name based on tier
-        # queue_name = "default"
-        # if tier in {"Tier1", "Tier2", "Tier3"}:
-        #     queue_name = tier
-
-        # tier_queue = Queue(name=queue_name, connection=redis_conn)
 
         num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
         if not num_workers:
@@ -349,16 +335,20 @@ def dashboard():
 
         position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
 
-
-
-        print("🖥️ Rendering dashboard with context:", context, flush=True)
+        print("🖥️ Rendering dashboard with queued_info:", queued_info, flush=True)
 
         return render_template(
             "dashboard.html",
-            **context,
+            filename=None,
+            selected_mode=selected_mode,
+            row_count=None,
+            duration_estimate=None,
+            queue_eta=None,
             just_logged_in=session.pop("just_logged_in", False),
             queue_position=position,
             queue_eta_minutes=eta_minutes,
+            queued_mode=selected_mode,
+            queued_position=initial_queue_pos,
         )
 
     # Otherwise, continue with POST logic...
@@ -614,12 +604,14 @@ def dashboard():
                 set_job_id(email, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
 
+                num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                if not num_workers:
+                    num_workers = 1
+                position, _ = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
+
                 session['dashboard_counters'] = {
-                    'filename': filename,
-                    'selected_mode': mode,
-                    'row_count': row_count,
-                    'duration_estimate': duration_estimate,
-                    'queue_eta': queue_eta,
+                    'mode': mode,
+                    'queue_position': position,
                 }
 
                 print("🚩 Set dashboard_counters in session:", session['dashboard_counters'], flush=True)
