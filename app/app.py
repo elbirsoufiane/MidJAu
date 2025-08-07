@@ -556,6 +556,7 @@ def dashboard():
                         row_count=row_count,
                         duration_estimate=duration_estimate,
                         queue_eta=queue_eta,
+                        start_failed=True,
                         queue_position=None,
                         queue_eta_minutes=None,
                     )
