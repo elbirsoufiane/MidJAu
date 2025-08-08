@@ -209,6 +209,44 @@ def check_license_and_quota(email, license_key):
 #     return {"position": position, "eta_minutes": eta_minutes}
 
 
+
+FLY_API = "https://api.machines.dev/v1"
+FLY_TOKEN = os.getenv("FLY_API_TOKEN")
+
+def fly_request(method, path, **kwargs):
+    if not FLY_TOKEN:
+        raise RuntimeError("FLY_API_TOKEN is not set")
+    headers = kwargs.pop("headers", {})
+    headers["Authorization"] = f"Bearer {FLY_TOKEN}"
+    headers["Content-Type"] = "application/json"
+    url = f"{FLY_API}{path}"
+    resp = requests.request(method, url, headers=headers, timeout=10, **kwargs)
+    resp.raise_for_status()
+    return resp
+
+def list_machines_api(app_name: str) -> list[dict]:
+    r = fly_request("GET", f"/apps/{app_name}/machines")
+    return r.json() or []
+
+def pick_stopped_machine(machines: list[dict]) -> str | None:
+    for m in machines:
+        if m.get("state") == "stopped":
+            return m.get("id")
+    return None
+
+def start_machine_api(app_name: str, machine_id: str):
+    fly_request("POST", f"/apps/{app_name}/machines/{machine_id}/start")
+
+def ensure_worker_for_queue(queue_name: str, timeout: int = 30, poll: int = 3) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        if get_active_worker_count(redis_conn, queue_name=queue_name) > 0:
+            return True
+        app.logger.info(f"[ensure_worker] Waiting for worker on '{queue_name}'...")
+        time.sleep(poll)
+    return False
+
+
 @app.route('/queue_eta')
 def queue_eta():
     if "email" not in session:
@@ -550,7 +588,7 @@ def dashboard():
             try:
                 settings_stream = download_file_obj(f"Users/{email}/settings.json")
                 if not settings_stream:
-                    flash("❌ Failed to download settings from cloud storage", "error")
+                    flash("❌ Make sure all of your settings fields are populated, correct and saved.", "error")
                     return render_template(
                         "dashboard.html",
                         filename=filename,
@@ -618,50 +656,77 @@ def dashboard():
                 # Create the queue object
                 # tier_queue = Queue(name=queue_name, connection=redis_conn)
                 q = get_user_queue(email)
+
+                # num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                # if not num_workers:
+                #     worker_app = {
+                #         "Tier1": "midjau-worker-tier1",
+                #         "Tier2": "midjau-worker-tier2",
+                #         "Tier3": "midjau-worker-tier3",
+                #     }.get(q.name) or os.getenv("WORKER_APP")
+                #     if worker_app:
+                #         try:
+                #             subprocess.run(
+                #                 ["fly", "machines", "start", worker_app],
+                #                 check=True,
+                #                 stdout=subprocess.PIPE,
+                #                 stderr=subprocess.PIPE,
+                #             )
+                #         except Exception as e:
+                #             flash(f"❌ Failed to start worker: {e}", "error")
+                #             return render_template(
+                #                 "dashboard.html",
+                #                 filename=filename,
+                #                 selected_mode=mode,
+                #                 row_count=row_count,
+                #                 duration_estimate=duration_estimate,
+                #                 queue_eta=queue_eta,
+                #                 start_failed=True,
+                #                 queue_position=None,
+                #                 queue_eta_minutes=None,
+                #             )
+                #         # num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                #     poll_interval = 5
+                #     timeout = 10
+                #     start_time = time.time()
+                #     while (
+                #         get_active_worker_count(redis_conn, queue_name=q.name) == 0
+                #         and time.time() - start_time < timeout
+                #     ):
+                #         app.logger.info("Waiting for worker to become active...")
+                #         time.sleep(poll_interval)
+                #     num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+
+
+                #     if not num_workers:
+                #         app.logger.warning("No active workers available after waiting.")
+                #         flash("❌ No active workers available. Please try again later.", "error")
+                #         return render_template(
+                #             "dashboard.html",
+                #             filename=filename,
+                #             selected_mode=mode,
+                #             row_count=row_count,
+                #             duration_estimate=duration_estimate,
+                #             queue_eta=queue_eta,
+                #             start_failed=True,
+                #             queue_position=None,
+                #             queue_eta_minutes=None,
+                #         )
+                #     else:
+                #         app.logger.info("Worker detected, proceeding to enqueue job.")
+                
                 num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
-                if not num_workers:
-                    worker_app = {
+                if num_workers <= 0:
+                    app_by_tier = {
                         "Tier1": "midjau-worker-tier1",
                         "Tier2": "midjau-worker-tier2",
                         "Tier3": "midjau-worker-tier3",
-                    }.get(q.name) or os.getenv("WORKER_APP")
-                    if worker_app:
-                        try:
-                            subprocess.run(
-                                ["fly", "machines", "start", worker_app],
-                                check=True,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                            )
-                        except Exception as e:
-                            flash(f"❌ Failed to start worker: {e}", "error")
-                            return render_template(
-                                "dashboard.html",
-                                filename=filename,
-                                selected_mode=mode,
-                                row_count=row_count,
-                                duration_estimate=duration_estimate,
-                                queue_eta=queue_eta,
-                                start_failed=True,
-                                queue_position=None,
-                                queue_eta_minutes=None,
-                            )
-                        # num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
-                    poll_interval = 5
-                    timeout = 10
-                    start_time = time.time()
-                    while (
-                        get_active_worker_count(redis_conn, queue_name=q.name) == 0
-                        and time.time() - start_time < timeout
-                    ):
-                        app.logger.info("Waiting for worker to become active...")
-                        time.sleep(poll_interval)
-                    num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                    }
+                    worker_app = app_by_tier.get(q.name) or os.getenv("WORKER_APP")
 
-
-                    if not num_workers:
-                        app.logger.warning("No active workers available after waiting.")
-                        flash("❌ No active workers available. Please try again later.", "error")
+                    if not worker_app:
+                        app.logger.warning(f"[worker-start] No worker app mapped for queue '{q.name}'.")
+                        flash("❌ No worker app configured for this tier.", "error")
                         return render_template(
                             "dashboard.html",
                             filename=filename,
@@ -673,8 +738,72 @@ def dashboard():
                             queue_position=None,
                             queue_eta_minutes=None,
                         )
-                    else:
-                        app.logger.info("Worker detected, proceeding to enqueue job.")
+                    
+                    try:
+                        app.logger.info(f"[worker-start] queue={q.name} worker_app={worker_app}")
+
+                        machines = list_machines_api(worker_app)
+                        machine_id = pick_stopped_machine(machines)
+
+                        app.logger.info(f"[worker-start] machines={machines}")
+
+                        if machine_id:
+                            app.logger.info(f"[worker-start] Starting stopped machine {machine_id} on app {worker_app} via API...")
+                            start_machine_api(worker_app, machine_id)
+                        else:
+                            app.logger.info(f"[worker-start] No stopped machines for {worker_app}. Assuming an active one will register soon.")
+
+                        # Wait until the RQ worker registers on this queue
+                        if not ensure_worker_for_queue(q.name, timeout=30, poll=3):
+                            app.logger.warning("[worker-start] No active workers after waiting.")
+                            flash("❌ No active workers available. Please try again later.", "error")
+                            return render_template(
+                                "dashboard.html",
+                                filename=filename,
+                                selected_mode=mode,
+                                row_count=row_count,
+                                duration_estimate=duration_estimate,
+                                queue_eta=queue_eta,
+                                start_failed=True,
+                                queue_position=None,
+                                queue_eta_minutes=None,
+                            )
+                        else:
+                            app.logger.info("[worker-start] Worker detected, proceeding to enqueue job.")
+
+                    except requests.HTTPError as e:
+                        app.logger.exception("[worker-start] Fly API error")
+                        flash(f"❌ Failed to start worker: {e}", "error")
+                        return render_template(
+                            "dashboard.html",
+                            filename=filename,
+                            selected_mode=mode,
+                            row_count=row_count,
+                            duration_estimate=duration_estimate,
+                            queue_eta=queue_eta,
+                            start_failed=True,
+                            queue_position=None,
+                            queue_eta_minutes=None,
+                        )
+                    except Exception as e:
+                        app.logger.exception("[worker-start] unexpected error")
+                        flash(f"❌ Failed to start worker: {e}", "error")
+                        return render_template(
+                            "dashboard.html",
+                            filename=filename,
+                            selected_mode=mode,
+                            row_count=row_count,
+                            duration_estimate=duration_estimate,
+                            queue_eta=queue_eta,
+                            start_failed=True,
+                            queue_position=None,
+                            queue_eta_minutes=None,
+                        )
+
+
+                # Refresh count after possible start
+                num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+
 
                 job = q.enqueue(
                     run_mode,
@@ -693,7 +822,7 @@ def dashboard():
                     },
                 )
                 set_job_id(email, job.id)
-                flash(f"🟢 Job queued in mode: {mode}", "success")
+                # flash(f"🟢 Job queued in mode: {mode}", "success")
 
                 position, _ = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
 
