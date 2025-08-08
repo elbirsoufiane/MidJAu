@@ -646,8 +646,21 @@ def dashboard():
                                 queue_position=None,
                                 queue_eta_minutes=None,
                             )
-                        num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                        # num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                    poll_interval = 5
+                    timeout = 10
+                    start_time = time.time()
+                    while (
+                        get_active_worker_count(redis_conn, queue_name=q.name) == 0
+                        and time.time() - start_time < timeout
+                    ):
+                        app.logger.info("Waiting for worker to become active...")
+                        time.sleep(poll_interval)
+                    num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+
+
                     if not num_workers:
+                        app.logger.warning("No active workers available after waiting.")
                         flash("❌ No active workers available. Please try again later.", "error")
                         return render_template(
                             "dashboard.html",
@@ -660,6 +673,8 @@ def dashboard():
                             queue_position=None,
                             queue_eta_minutes=None,
                         )
+                    else:
+                        app.logger.info("Worker detected, proceeding to enqueue job.")
 
                 job = q.enqueue(
                     run_mode,
