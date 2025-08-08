@@ -616,6 +616,48 @@ def dashboard():
                 # Create the queue object
                 # tier_queue = Queue(name=queue_name, connection=redis_conn)
                 q = get_user_queue(email)
+                num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                if not num_workers:
+                    worker_app = {
+                        "Tier1": "midjau-worker-tier1",
+                        "Tier2": "midjau-worker-tier2",
+                        "Tier3": "midjau-worker-tier3",
+                    }.get(q.name) or os.getenv("WORKER_APP")
+                    if worker_app:
+                        try:
+                            subprocess.run(
+                                ["fly", "machines", "start", worker_app],
+                                check=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                            )
+                        except Exception as e:
+                            flash(f"❌ Failed to start worker: {e}", "error")
+                            return render_template(
+                                "dashboard.html",
+                                filename=filename,
+                                selected_mode=mode,
+                                row_count=row_count,
+                                duration_estimate=duration_estimate,
+                                queue_eta=queue_eta,
+                                start_failed=True,
+                                queue_position=None,
+                                queue_eta_minutes=None,
+                            )
+                        num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+                    if not num_workers:
+                        flash("❌ No active workers available. Please try again later.", "error")
+                        return render_template(
+                            "dashboard.html",
+                            filename=filename,
+                            selected_mode=mode,
+                            row_count=row_count,
+                            duration_estimate=duration_estimate,
+                            queue_eta=queue_eta,
+                            start_failed=True,
+                            queue_position=None,
+                            queue_eta_minutes=None,
+                        )
 
                 job = q.enqueue(
                     run_mode,
@@ -636,9 +678,6 @@ def dashboard():
                 set_job_id(email, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
 
-                num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
-                if not num_workers:
-                    num_workers = 1
                 position, _ = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
 
                 session['dashboard_counters'] = {
