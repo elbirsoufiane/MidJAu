@@ -566,7 +566,7 @@ def dashboard():
                     "MIDJOURNEY APP ID", "MIDJOURNEY COMMAND ID", "COMMAND VERSION",
                 ]
                 if any(not settings.get(k) for k in required):
-                    flash("❌ Populate your settings before you can submit a job.", "error")
+                    flash("❌ Make sure all of your settings fields are populated and correct.", "error")
                     return render_template(
                         "dashboard.html",
                         filename=filename,
