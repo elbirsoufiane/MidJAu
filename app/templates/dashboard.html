@@ -78,7 +78,14 @@
         let msg = "";
         const mode = document.getElementById("selectedMode")?.value || "";
         const etaBox = document.getElementById("job-eta-box");
-        if (data.position === 0) {
+        if (data.num_workers === 0) {
+          msg = "<b>No workers are currently available. Please try again later.</b>";
+          if (jobProgressInterval) {
+            clearInterval(jobProgressInterval);
+            jobProgressInterval = null;
+            if (etaBox) etaBox.innerHTML = "";
+          }
+        } else if (data.position === 0) {
           msg = "<b>Your job is running now!</b>";
           if (!jobProgressInterval) {
             updateJobProgress();

@@ -215,10 +215,12 @@ def queue_eta():
         return {"error": "Unauthorized"}, 401
 
     email = session["email"]
-    q = get_user_queue(email)               # <─ new
-    num = get_active_worker_count(redis_conn, queue_name=q.name) or 1
+    q = get_user_queue(email)
+    num = get_active_worker_count(redis_conn, queue_name=q.name)
+    if num <= 0:
+        return {"num_workers": 0, "position": None, "eta_minutes": None}
     pos, eta = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num)
-    return {"position": pos, "eta_minutes": eta}
+    return {"num_workers": num, "position": pos, "eta_minutes": eta}
 
 
 
