@@ -21,7 +21,6 @@ import io
 from multiprocessing import Lock
 from subprocess import Popen
 from dotenv import load_dotenv
-
 load_dotenv()
 from redis import Redis
 from rq import Queue
@@ -36,12 +35,14 @@ import pandas as pd
 from rq import Worker
 
 
+
 # from app.tasks import midjourney_all
 from app.tasks import run_mode
 
 from rq.job import Job
 from rq.exceptions import NoSuchJobError
 import shutil
+
 
 
 app = Flask(__name__)
@@ -54,10 +55,9 @@ process_lock = Lock()
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 # default_queue = Queue(connection=redis_conn)
 
-
 def get_user_queue(email: str) -> Queue:
     """Return the proper RQ Queue object for this user’s tier."""
-    key = session.get("saved_key") or session.get("key")
+    key  = session.get("saved_key") or session.get("key")
     info = check_license_and_quota(email, key)
     tier = (info or {}).get("tier", "default")
     name = tier if tier in {"Tier1", "Tier2", "Tier3"} else "default"
@@ -95,13 +95,11 @@ def remove_job_id(email: str) -> None:
     """Remove a stored job ID for a user from Redis."""
     redis_conn.hdel(RUNNING_JOBS_HASH, email)
 
-
 # Callback for RQ jobs to clear job ID when they finish
 def clear_job_id_on_success(job, connection, result):
     email = job.meta.get("user_email")
     if email:
         remove_job_id(email)
-
 
 def estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=1):
     """
@@ -132,16 +130,16 @@ def estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=1):
     eta_seconds = 0
 
     for job in job_list:
-        meta = getattr(job, "meta", {})
+        meta = getattr(job, 'meta', {})
         mode = meta.get("mode")
         prompts = meta.get("total_prompts")
         job_email = meta.get("user_email")
         completed = meta.get("completed_prompts", 0)
 
         # fallback for old jobs
-        if not prompts and hasattr(job, "args") and len(job.args) >= 2:
+        if not prompts and hasattr(job, 'args') and len(job.args) >= 2:
             prompts = job.args[2]
-        if not mode and hasattr(job, "args") and len(job.args) >= 1:
+        if not mode and hasattr(job, 'args') and len(job.args) >= 1:
             mode = job.args[0]
 
         per_prompt = MODE_RUNTIME.get(mode, 60)
@@ -156,9 +154,7 @@ def estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=1):
             worker_available_at[idx] = job_time
         else:
             # For queued jobs: assign to soonest available worker
-            soonest_worker = min(
-                range(num_workers), key=lambda i: worker_available_at[i]
-            )
+            soonest_worker = min(range(num_workers), key=lambda i: worker_available_at[i])
             start_time = worker_available_at[soonest_worker]
             job_time = (prompts or 0) * per_prompt
             worker_available_at[soonest_worker] += job_time
@@ -178,29 +174,27 @@ def estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=1):
     return user_position, eta_minutes
 
 
+
 def get_active_worker_count(redis_conn, queue_name="default"):
     """
     Returns the number of active RQ workers listening to the given queue.
     """
     # Worker.all() returns all workers known to Redis (not just the current process)
-    return sum(
-        queue_name in worker.queue_names()
-        for worker in Worker.all(connection=redis_conn)
-    )
-
+    return sum(queue_name in worker.queue_names() for worker in Worker.all(connection=redis_conn))
 
 def check_license_and_quota(email, license_key):
-    params = {"email": email, "key": license_key}
+    params = {
+        "email": email,
+        "key": license_key
+    }
     try:
         resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=10)
         resp.raise_for_status()
-        return (
-            resp.json()
-        )  # Should have success, tier, dailyQuota, jobQuota, promptsToday
+        return resp.json()  # Should have success, tier, dailyQuota, jobQuota, promptsToday
     except Exception as e:
         print(f"License/Quota check error: {e}")
         return {"success": False, "reason": "Quota check failed"}
-
+    
 
 # @app.route('/queue_eta')
 # def queue_eta():
@@ -215,7 +209,7 @@ def check_license_and_quota(email, license_key):
 #     return {"position": position, "eta_minutes": eta_minutes}
 
 
-@app.route("/queue_eta")
+@app.route('/queue_eta')
 def queue_eta():
     if "email" not in session:
         return {"error": "Unauthorized"}, 401
@@ -229,7 +223,8 @@ def queue_eta():
     return {"num_workers": num, "position": pos, "eta_minutes": eta}
 
 
-@app.route("/job_progress")
+
+@app.route('/job_progress')
 def job_progress():
     if "email" not in session:
         return {"error": "Unauthorized"}, 401
@@ -256,7 +251,7 @@ def job_progress():
             "status": "running",
             "completed_prompts": completed,
             "total_prompts": total,
-            "remaining_seconds": remaining_seconds,
+            "remaining_seconds": remaining_seconds
         }
     elif job.get_status() == "queued":
         meta = job.meta
@@ -267,10 +262,11 @@ def job_progress():
         return {
             "status": "queued",
             "total_prompts": total,
-            "duration_estimate": duration_estimate,
+            "duration_estimate": duration_estimate
         }
     else:
         return {"status": job.get_status()}
+
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -281,10 +277,8 @@ def login():
         remember = "remember" in request.form
 
         try:
-            response = requests.get(
-                LICENSE_VALIDATION_URL, params={"email": email, "key": key}
-            )
-
+            response = requests.get(LICENSE_VALIDATION_URL, params={"email": email, "key": key})
+            
             print("✅ RAW RESPONSE:", response.text, flush=True)
             print("✅ RESPONSE JSON:", response.json(), flush=True)
             print("✅ RAW RESPONSE:", response.text)
@@ -327,28 +321,21 @@ def dashboard():
 
     # 👇 If this is a GET, use counters from session (if present)
     if request.method == "GET":
-        queued_info = session.pop("dashboard_counters", {})
-        print(
-            "🔎 dashboard_counters found in session (popped):", queued_info, flush=True
-        )
+        queued_info = session.pop('dashboard_counters', {})
+        print("🔎 dashboard_counters found in session (popped):", queued_info, flush=True)
 
-        selected_mode = queued_info.get("mode")
-        initial_queue_pos = queued_info.get("queue_position")
+        selected_mode = queued_info.get('mode')
+        initial_queue_pos = queued_info.get('queue_position')
 
         key = session.get("saved_key") or session.get("key")
         license_info = check_license_and_quota(email, key)
         q = get_user_queue(email)
 
         num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
+        if not num_workers:
+            num_workers = 1
 
-        if num_workers <= 0:
-            no_workers = True
-            position = eta_minutes = None
-        else:
-            no_workers = False
-            position, eta_minutes = estimate_queue_eta_parallel(
-                email, q, redis_conn, num_workers=num_workers
-            )
+        position, eta_minutes = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
 
         print("🖥️ Rendering dashboard with queued_info:", queued_info, flush=True)
 
@@ -362,7 +349,6 @@ def dashboard():
             just_logged_in=session.pop("just_logged_in", False),
             queue_position=position,
             queue_eta_minutes=eta_minutes,
-            no_workers=no_workers,
             queued_mode=selected_mode,
             queued_position=initial_queue_pos,
         )
@@ -373,6 +359,8 @@ def dashboard():
     row_count = None
     duration_estimate = None
     queue_eta = None
+
+
 
     if request.method == "POST":
         # 🔐 License revalidation before proceeding
@@ -385,6 +373,7 @@ def dashboard():
         if not license_info.get("success"):
             flash("❌ License check/validation failed. Please try again.", "error")
             return redirect(url_for("dashboard"))
+
 
         try:
             response = requests.get(
@@ -425,7 +414,6 @@ def dashboard():
                         queue_eta=queue_eta,
                         queue_position=None,
                         queue_eta_minutes=None,
-                        no_workers=False,
                     )
             except NoSuchJobError:
                 pass  # Remove stale key below
@@ -480,9 +468,7 @@ def dashboard():
             # Upload to Tigris
             success = upload_file_obj(excel_stream_upload, key)
             if not success:
-                flash(
-                    "❌ Failed to upload prompts Excel file to cloud storage", "error"
-                )
+                flash("❌ Failed to upload prompts Excel file to cloud storage", "error")
                 return render_template(
                     "dashboard.html",
                     filename=None,
@@ -492,7 +478,6 @@ def dashboard():
                     queue_eta=queue_eta,
                     queue_position=None,
                     queue_eta_minutes=None,
-                    no_workers=False,
                 )
 
             # Count rows using pandas (with a fresh, untouched BytesIO)
@@ -511,10 +496,7 @@ def dashboard():
             daily_quota = int(license_info.get("dailyQuota", 0))
             prompts_today = int(license_info.get("promptsToday", 0))
             if row_count > job_quota:
-                flash(
-                    f"❌ Your current tier only allows {job_quota} prompts per job. Your file has {row_count}.",
-                    "error",
-                )
+                flash(f"❌ Your current tier only allows {job_quota} prompts per job. Your file has {row_count}.", "error")
                 return render_template(
                     "dashboard.html",
                     filename=None,
@@ -525,13 +507,9 @@ def dashboard():
                     start_failed=True,
                     queue_position=None,
                     queue_eta_minutes=None,
-                    no_workers=False,
                 )
             if prompts_today + row_count > daily_quota:
-                flash(
-                    f"❌ Daily quota exceeded! You have used {prompts_today}/{daily_quota} prompts today.",
-                    "error",
-                )
+                flash(f"❌ Daily quota exceeded! You have used {prompts_today}/{daily_quota} prompts today.", "error")
                 return render_template(
                     "dashboard.html",
                     filename=None,
@@ -542,8 +520,9 @@ def dashboard():
                     start_failed=True,
                     queue_position=None,
                     queue_eta_minutes=None,
-                    no_workers=False,
                 )
+                
+
 
             # 🚚 Generate a temporary download URL for the worker
             presigned_url = generate_presigned_url(key)
@@ -558,7 +537,6 @@ def dashboard():
                     queue_eta=queue_eta,
                     queue_position=None,
                     queue_eta_minutes=None,
-                    no_workers=False,
                 )
 
             # File was uploaded — you can display the filename
@@ -567,6 +545,7 @@ def dashboard():
             env = os.environ.copy()
             env["PROMPTS_FILE"] = presigned_url
             env["USER_EMAIL"] = email
+
 
             try:
                 settings_stream = download_file_obj(f"Users/{email}/settings.json")
@@ -582,22 +561,14 @@ def dashboard():
                         start_failed=True,
                         queue_position=None,
                         queue_eta_minutes=None,
-                        no_workers=False,
                     )
                 settings = json.load(settings_stream)
                 required = [
-                    "USER TOKEN",
-                    "CHANNEL ID",
-                    "GUILD ID",
-                    "MIDJOURNEY APP ID",
-                    "MIDJOURNEY COMMAND ID",
-                    "COMMAND VERSION",
+                    "USER TOKEN", "CHANNEL ID", "GUILD ID",
+                    "MIDJOURNEY APP ID", "MIDJOURNEY COMMAND ID", "COMMAND VERSION",
                 ]
                 if any(not settings.get(k) for k in required):
-                    flash(
-                        "❌ Populate your settings before you can submit a job.",
-                        "error",
-                    )
+                    flash("❌ Populate your settings before you can submit a job.", "error")
                     return render_template(
                         "dashboard.html",
                         filename=filename,
@@ -608,7 +579,6 @@ def dashboard():
                         start_failed=True,
                         queue_position=None,
                         queue_eta_minutes=None,
-                        no_workers=False,
                     )
                 for k, v in settings.items():
                     env_key = k.replace(" ", "_")
@@ -625,16 +595,16 @@ def dashboard():
                     queue_eta=queue_eta,
                     queue_position=None,
                     queue_eta_minutes=None,
-                    no_workers=False,
                 )
 
             # Estimate duration and queue start
             per_prompt = MODE_RUNTIME.get(mode, 60)
             duration_estimate = int((row_count * per_prompt) / 60)
             # queued_ahead = int(tier_queue.count)
-            q = get_user_queue(email)
+            q = get_user_queue(email) 
             queued_ahead = int(q.count)
             queue_eta = int((queued_ahead * TYPICAL_JOB_RUNTIME) / 60)
+
 
             if mode in ["U1", "U2", "U3", "U4", "All"]:
                 key = session.get("saved_key") or session.get("key")
@@ -675,16 +645,10 @@ def dashboard():
                                 start_failed=True,
                                 queue_position=None,
                                 queue_eta_minutes=None,
-                                no_workers=False,
                             )
-                        num_workers = get_active_worker_count(
-                            redis_conn, queue_name=q.name
-                        )
+                        num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
                     if not num_workers:
-                        flash(
-                            "❌ No active workers available. Please try again later.",
-                            "error",
-                        )
+                        flash("❌ No active workers available. Please try again later.", "error")
                         return render_template(
                             "dashboard.html",
                             filename=filename,
@@ -695,7 +659,6 @@ def dashboard():
                             start_failed=True,
                             queue_position=None,
                             queue_eta_minutes=None,
-                            no_workers=True,
                         )
 
                 job = q.enqueue(
@@ -710,27 +673,22 @@ def dashboard():
                     meta={
                         "user_email": email,
                         "mode": mode,
-                        "total_prompts": row_count,  # row_count is number of prompts for this job
-                        "completed_prompts": 0,  # Optional; update from worker as the job progresses
+                        "total_prompts": row_count,   # row_count is number of prompts for this job
+                        "completed_prompts": 0,       # Optional; update from worker as the job progresses
                     },
                 )
                 set_job_id(email, job.id)
                 flash(f"🟢 Job queued in mode: {mode}", "success")
 
-                position, _ = estimate_queue_eta_parallel(
-                    email, q, redis_conn, num_workers=num_workers
-                )
+                position, _ = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num_workers)
 
-                session["dashboard_counters"] = {
-                    "mode": mode,
-                    "queue_position": position,
+                session['dashboard_counters'] = {
+                    'mode': mode,
+                    'queue_position': position,
                 }
 
-                print(
-                    "🚩 Set dashboard_counters in session:",
-                    session["dashboard_counters"],
-                    flush=True,
-                )
+                print("🚩 Set dashboard_counters in session:", session['dashboard_counters'], flush=True)
+
 
                 return redirect(url_for("dashboard"))
 
@@ -747,7 +705,6 @@ def dashboard():
         just_logged_in=session.pop("just_logged_in", False),
         queue_position=None,
         queue_eta_minutes=None,
-        no_workers=False,
     )
 
 
@@ -782,7 +739,6 @@ def uploaded_file(filepath):
 
     return send_from_directory(directory, filename)
 
-
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     if "email" not in session:
@@ -810,7 +766,7 @@ def settings():
             "GUILD ID": request.form.get("guild_id"),
             "MIDJOURNEY APP ID": request.form.get("midjourney_app_id"),
             "MIDJOURNEY COMMAND ID": request.form.get("midjourney_command_id"),
-            "COMMAND VERSION": request.form.get("command_version"),
+            "COMMAND VERSION": request.form.get("command_version")
         }
         with open(settings_path, "w") as f:
             json.dump(new_settings, f, indent=4)
@@ -836,20 +792,20 @@ def subscription():
         return redirect(url_for("login"))
 
     email = session["email"]
-    key = session.get("saved_key") or session.get("key")
+    key   = session.get("saved_key") or session.get("key")
 
     info = check_license_and_quota(email, key)
     if not info.get("success"):
         flash("⚠️ Unable to fetch subscription data.", "error")
         return redirect(url_for("dashboard"))
-
+    
     # ─── NEW BLOCK ───────────────────────────────────────────────
-    expiry_raw = info.get("expiry")  # "2025-08-11T23:00:00.000Z"
+    expiry_raw = info.get("expiry")              # "2025-08-11T23:00:00.000Z"
     if expiry_raw:
-        date_only = expiry_raw[:10]  # "2025-08-11"
-        expiry_pretty = f"{date_only} at 12:00AM CST"
+        date_only      = expiry_raw[:10]         # "2025-08-11"
+        expiry_pretty  = f"{date_only} at 12:00AM CST"
     else:
-        expiry_pretty = "—"
+        expiry_pretty  = "—"
 
     # • translate numeric tier → marketing name
     TIER_NAMES = {
@@ -870,7 +826,7 @@ def subscription():
     return render_template("subscription.html", details=details)
 
 
-@app.route("/download_zip")
+@app.route('/download_zip')
 def download_zip():
     if "email" not in session:
         return "Unauthorized", 401
@@ -887,9 +843,9 @@ def download_zip():
         zip_stream.seek(0)
         return send_file(
             zip_stream,
-            mimetype="application/zip",
+            mimetype='application/zip',
             as_attachment=True,
-            download_name="generated_images.zip",
+            download_name='generated_images.zip'
         )
     except Exception as e:
         flash(f"❌ Failed to send ZIP file: {e}", "error")
@@ -938,8 +894,10 @@ def download_failed_prompts_excel():
         excel_stream,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name="failed_prompts.xlsx",
+        download_name="failed_prompts.xlsx"
     )
+
+
 
 
 @app.route("/cleanup_files", methods=["POST"])
@@ -963,7 +921,7 @@ def cleanup_files():
             if os.path.isfile(fpath):
                 os.remove(fpath)
     delete_file(f"Users/{email}/images.zip")
-
+    
     # Delete the failed_prompts.json file
     failed_path = get_user_failed_prompts_path(email)
     if os.path.exists(failed_path):
@@ -973,11 +931,13 @@ def cleanup_files():
     return "✅ Cleaned up files", 200
 
 
+
 @app.route("/logout")
 def logout():
     session.clear()
     flash("❌ You have been logged out.", "success")
     return redirect(url_for("login"))
+
 
 
 @app.route("/cancel", methods=["POST"])
@@ -1039,3 +999,5 @@ def cancel_script():
 if __name__ == "__main__":
     os.makedirs("Users", exist_ok=True)
     app.run(debug=True)
+
+
