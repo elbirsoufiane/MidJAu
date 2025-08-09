@@ -1,4 +1,4 @@
-# fly.autoscaler.toml for queue monitor autoscaler
+# fly.autoscaler.toml for queue_monitor_existing.py autoscaler
 
 app = "midjau-autoscaler"
 primary_region = "cdg"
