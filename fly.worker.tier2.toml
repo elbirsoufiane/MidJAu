@@ -13,5 +13,6 @@ primary_region = "cdg"
 
 [http_service]
   auto_start_machines = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "suspend"
+  min_machines_running = 1
 
