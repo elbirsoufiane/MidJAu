@@ -26,8 +26,8 @@ fly deploy -c fly.worker.toml --app my-app-worker
 ```
 
 ### Autoscaler process
-`fly.autoscaler.toml` builds `autoscaler.Dockerfile` and runs the queue monitor
-that scales worker machines up or down.
+`fly.autoscaler.toml` builds `autoscaler.Dockerfile` and runs
+`queue_monitor_existing.py` to scale worker machines up or down.
 Deploy it with:
 ```bash
 fly deploy -c fly.autoscaler.toml
