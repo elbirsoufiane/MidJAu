@@ -65,6 +65,7 @@ fly logs --app midjau-worker
 fly logs --app midjau-worker-tier1
 fly logs --app midjau-worker-tier2
 fly logs --app midjau-worker-tier3
+fly logs --app midjau-autoscaler
 
 ### show set secrets
 
@@ -116,3 +117,61 @@ git add .
 git commit -m "Explain what you changed"
 git push
 git pull
+
+
+### Autoscaller set up
+Autoscaler (queue_monitor_existing.py)
+queue_monitor_existing.py uses the following environment variables:
+
+Variable	Purpose
+REDIS_URL	URL to the shared Redis instance.
+POLL_INTERVAL_SEC	Seconds between queue checks (default 30).
+MAX_RUNNING_PER_TIER	Max machines to run per tier (default 1).
+TIER{N}_APP	Fly app name for tier N (default midjau-worker-tierN).
+TIER{N}_MACHINE_IDS	Comma‑separated machine IDs for tier N.
+TIER{N}_QUEUE_NAME	Redis queue name for tier N (default TierN).
+For each tier that you want the autoscaler to manage, set TIER{N}_MACHINE_IDS to the IDs of your pre‑created machines (e.g., abcd123,efgh456). You can override app names or queue names if they differ.
+
+Set these as secrets for the autoscaler app:
+
+fly secrets set \
+  REDIS_URL=redis://... \
+  POLL_INTERVAL_SEC=30 \
+  MAX_RUNNING_PER_TIER=1 \
+  TIER1_APP=midjau-worker-tier1 \
+  TIER1_MACHINE_IDS=... \
+  TIER1_QUEUE_NAME=Tier1 \
+  TIER2_APP=midjau-worker-tier2 \
+  TIER2_MACHINE_IDS=... \
+  TIER2_QUEUE_NAME=Tier2 \
+  TIER3_APP=midjau-worker-tier3 \
+  TIER3_MACHINE_IDS=... \
+  TIER3_QUEUE_NAME=Tier3 \
+  -a midjau-autoscaler
+
+
+
+  Get machine IDs for each tier
+  fly machines list -a midjau-worker-tier1
+  fly machines list -a midjau-worker-tier2
+  fly machines list -a midjau-worker-tier3
+
+
+Copy the ID column values for the machines you want the autoscaler to manage.
+If multiple machines in a tier should be started/stopped, separate the IDs with commas:
+
+
+### Example:
+
+fly secrets set \
+  FLY_API_TOKEN="FlyV1 fm2_lJPECAAAAAAACZFPxBBzJdYlqJiWA4K+lsXAmQtSwrVodHRwczovL2FwaS5mbHkuaW8vdjGUAJLOABJl9h8Lk7lodHRwczovL2FwaS5mbHkuaW8vYWFhL3YxxDybeLc0M3BrrXzIkL5Ck0fPTaBW75Fpc9DIdhZLa7/i3KOLuX8qnYdKTw4nlR1Lp05iCvvbHc76ZWdgsMXETiSVQMOID4KWuq82pbR1MlyD5kEa0OpUSWorafeVIMaX0ojeKcOA84gCbHU90z6OPHCBAkinZtU6A5OBdS8ZVFKxE8V3LCZolmLl31M0j8Qg/S/KZZk5eak5ksbgx3JlwxWBYXt3M8P2RoWe78lW8s4=,fm2_lJPETiSVQMOID4KWuq82pbR1MlyD5kEa0OpUSWorafeVIMaX0ojeKcOA84gCbHU90z6OPHCBAkinZtU6A5OBdS8ZVFKxE8V3LCZolmLl31M0j8QQP1X0gfDhxQfT9LxTXG+KEsO5aHR0cHM6Ly9hcGkuZmx5LmlvL2FhYS92MZgEks5ol4OfzwAAAAEkj6G9F84AEa7xCpHOABGu8QzEEJqdrLlLRSsPlPQNwZHMGTDEIEuCqJ3hvWQucaVZapK7uOmf2LyAhkIcmSD3nX9QQN83" \
+  REDIS_URL=redis://default:d36a19f8a3a34402945eee9a59de3ab3@fly-midjau-redis.upstash.io:6379 \
+  POLL_INTERVAL_SEC=30 \
+  MAX_RUNNING_PER_TIER=1 \
+  TIER1_APP=midjau-worker-tier1 \
+  TIER1_MACHINE_IDS=90805536be6958,9080553ea9e0d8 \
+  TIER1_QUEUE_NAME=Tier1 \
+  -a midjau-autoscaler
+
+
+  fly deploy --config fly.autoscaler.toml --dockerfile autoscaler.Dockerfile --app midjau-autoscaler --no-cache
