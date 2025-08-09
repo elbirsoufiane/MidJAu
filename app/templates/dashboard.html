@@ -44,7 +44,7 @@
 <div id="status-msg" style="margin-top: 10px; font-style: italic; text-align: center;"></div>
 <div id="login-flag" data-just-logged-in="{{ just_logged_in | lower }}"></div>
 
-<audio id="completion-sound" src="{{ url_for('static', filename='completion.mp3') }}" preload="auto" hidden></audio>
+<audio id="completion-sound" src="{{ url_for('static', filename='completion.mp3') }}" preload="auto" playsinline hidden></audio>
 
 <script>
   let outputCleared = false;
@@ -71,6 +71,21 @@
   const clearBtn = document.querySelector('button[onclick="clearOutput()"]');
   const outputBox = document.getElementById("outputBox");
   let jobProgressInterval = null;
+  const completionSound = document.getElementById("completion-sound");
+  let audioUnlocked = false;
+
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    completionSound.play().then(() => {
+      completionSound.pause();
+      completionSound.currentTime = 0;
+      audioUnlocked = true;
+    }).catch(() => { /* will retry on next click */ });
+  }
+
+  // prime audio on Start click (and first touch)
+  runBtn?.addEventListener("click", unlockAudio, { once: false });
+  document.addEventListener("touchstart", unlockAudio, { once: true });
 
   // Live ETA update from backend
   function updateQueueEta() {
@@ -193,33 +208,93 @@
           clearBtn.textContent = "🧹 Clear Output";
         }
 
+        // if (data.includes("✅ Execution completed.") && !scriptJustCompleted && !suppressDownload) {
+        //   scriptJustCompleted = true;
+        //   const flashDiv = document.getElementById("flash-message");
+        //   if (flashDiv) flashDiv.remove();
+        //   showToast("🟢 Images have been generated successfully!", "success");
+        //   setTimeout(() => {
+        //     window.location.href = "/download_zip";
+
+
         if (data.includes("✅ Execution completed.") && !scriptJustCompleted && !suppressDownload) {
           scriptJustCompleted = true;
+
+          // Play completion sound
+          try {
+            completionSound.currentTime = 0;
+            completionSound.play().catch(() => {});   // safe if not unlocked
+          } catch (e) {}
+
           const flashDiv = document.getElementById("flash-message");
           if (flashDiv) flashDiv.remove();
           showToast("🟢 Images have been generated successfully!", "success");
-          setTimeout(() => {
-            window.location.href = "/download_zip";
-            fetch("/download_failed_prompts_excel", { method: "HEAD" })
-              .then(res => {
-                if (res.ok) {
-                  const excelLink = document.createElement("a");
-                  excelLink.href = "/download_failed_prompts_excel";
-                  excelLink.download = "failed_prompts.xlsx";
-                  document.body.appendChild(excelLink);
-                  excelLink.click();
-                  document.body.removeChild(excelLink);
-                }
-              })
-              .catch(err => console.error("Failed prompt check error:", err));
-            setTimeout(() => {
-              fetch("/cleanup_files", { method: "POST" })
-                .then(res => res.text())
-                .then(msg => console.log(msg))
-                .catch(err => console.error("Cleanup failed:", err));
+
+          // setTimeout(() => {
+          //   window.location.href = "/download_zip";
+
+          //   fetch("/download_failed_prompts_excel", { method: "HEAD" })
+          //     .then(res => {
+          //       if (res.ok) {
+          //         const excelLink = document.createElement("a");
+          //         excelLink.href = "/download_failed_prompts_excel";
+          //         excelLink.download = "failed_prompts.xlsx";
+          //         document.body.appendChild(excelLink);
+          //         excelLink.click();
+          //         document.body.removeChild(excelLink);
+          //       }
+          //     })
+          //     .catch(err => console.error("Failed prompt check error:", err));
+          //   setTimeout(() => {
+          //     fetch("/cleanup_files", { method: "POST" })
+          //       .then(res => res.text())
+          //       .then(msg => console.log(msg))
+          //       .catch(err => console.error("Cleanup failed:", err));
+
+          const zipDownload = fetch("/download_zip")
+            .then(res => {
+              if (!res.ok) throw new Error("Zip download failed");
+              return res.blob();
+            })
+            .then(blob => {
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = "images.zip";
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+            })
+            .catch(err => console.error("Zip download error:", err));
+          const failedExcelDownload = fetch("/download_failed_prompts_excel")
+            .then(res => {
+              if (!res.ok) throw new Error("Failed prompts file not found");
+              return res.blob();
+            })
+            .then(blob => {
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = "failed_prompts.xlsx";
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+            })
+            .catch(err => console.error("Failed prompt download error:", err));
+
+          const allDownloads = Promise.all([zipDownload, failedExcelDownload]);
+          const fallback = new Promise(resolve => setTimeout(resolve, 10000));
+
+          Promise.race([allDownloads, fallback])
+            .then(() => fetch("/cleanup_files", { method: "POST" }))
+            .then(res => res.text())
+            .then(msg => console.log(msg))
+            .catch(err => console.error("Cleanup failed:", err))
+            .finally(() => {
               sessionStorage.removeItem("scriptStarted");
-            }, 2000);
-          }, 2000);
+            });
         }
         if (data.includes("Midjourney") && !data.includes("✅ Execution completed.")) {
           scriptJustCompleted = false;
