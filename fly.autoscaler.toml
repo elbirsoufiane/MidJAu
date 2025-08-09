@@ -1,0 +1,17 @@
+# fly.autoscaler.toml for queue monitor autoscaler
+
+app = "midjau-autoscaler"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "autoscaler.Dockerfile"
+
+[http_service]
+  auto_start_machines = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
