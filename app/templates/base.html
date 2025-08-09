@@ -307,6 +307,8 @@
            class="{% if request.endpoint == 'login' %}active{% endif %}">Login</a>
         <a href="{{ url_for('dashboard') }}"
            class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="{{ url_for('canva') }}"
+           class="{% if request.endpoint == 'canva' %}active{% endif %}">Canva</a>
         <a href="{{ url_for('settings') }}"
            class="{% if request.endpoint == 'settings' %}active{% endif %}">Settings</a>
         <a href="{{ url_for('subscription') }}"
