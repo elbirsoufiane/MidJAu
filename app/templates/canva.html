@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Canva | MidjyAuto{% endblock %}
+
+{% block content %}
+<h2 class="title">🎨 Canva Automation</h2>
+
+<form method="POST" enctype="multipart/form-data" onsubmit="return handleSubmit();">
+    <label class="form-label">Upload Spreadsheet:</label>
+    <input type="file" name="spreadsheet" required>
+
+    <label class="form-label" style="margin-top: 20px;">Upload Images:</label>
+    <input type="file" name="images" multiple>
+
+    <label class="form-label" style="margin-top: 20px;">Canva API Key:</label>
+    <input type="text" name="api_key" required>
+
+    <label class="form-label" style="margin-top: 20px;">Template ID:</label>
+    <input type="text" name="template_id" required>
+
+    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+        <button type="submit" id="run-canva-btn" class="save-btn">Start</button>
+        <button type="button" id="cancel-canva-btn" class="save-btn">Cancel</button>
+    </div>
+
+    <div id="queue-eta-area" style="text-align:center; margin-top:10px;">
+        <p>Not running! Upload a spreadsheet and hit Start.</p>
+    </div>
+
+    <div id="job-eta-box" style="text-align:center; margin-top:5px;"></div>
+</form>
+
+<script>
+const runBtn = document.getElementById('run-canva-btn');
+const cancelBtn = document.getElementById('cancel-canva-btn');
+let jobProgressInterval = null;
+
+function handleSubmit() {
+  runBtn.disabled = true;
+  runBtn.textContent = 'Processing...';
+  cancelBtn.disabled = true;
+  cancelBtn.textContent = 'Processing...';
+  return true;
+}
+
+cancelBtn.addEventListener('click', () => {
+  fetch('/cancel', {method: 'POST'})
+    .then(() => {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Start';
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Cancel';
+    });
+});
+
+function updateQueueEta() {
+  fetch('/queue_eta')
+    .then(res => res.json())
+    .then(data => {
+      let msg = '';
+      if (data.num_workers === 0) {
+        msg = '<b>No workers are currently available. Please try again later.</b>';
+      } else if (data.position === 0) {
+        msg = '<b>Your job is running now!</b>';
+        if (!jobProgressInterval) {
+          updateJobProgress();
+          jobProgressInterval = setInterval(updateJobProgress, 3000);
+        }
+      } else if (data.position > 0) {
+        msg = `<b>Queued – position ${data.position}, ~${data.eta_minutes} min to start</b>`;
+        if (jobProgressInterval) {
+          clearInterval(jobProgressInterval);
+          jobProgressInterval = null;
+          document.getElementById('job-eta-box').innerHTML = '';
+        }
+      } else {
+        msg = 'Not running! Upload a spreadsheet and hit Start.';
+        if (jobProgressInterval) {
+          clearInterval(jobProgressInterval);
+          jobProgressInterval = null;
+          document.getElementById('job-eta-box').innerHTML = '';
+        }
+      }
+      document.getElementById('queue-eta-area').innerHTML = '<p>' + msg + '</p>';
+    });
+}
+
+function updateJobProgress() {
+  fetch('/job_progress')
+    .then(res => res.json())
+    .then(data => {
+      const etaBox = document.getElementById('job-eta-box');
+      if (data.status === 'running') {
+        const min = Math.ceil(data.remaining_seconds / 60);
+        etaBox.innerHTML = `<b>Estimated time remaining: ${min} min</b> (${data.completed_prompts} / ${data.total_prompts} done)`;
+      } else {
+        etaBox.innerHTML = '';
+      }
+    })
+    .catch(() => {});
+}
+
+setInterval(updateQueueEta, 3000);
+updateQueueEta();
+</script>
+{% endblock %}

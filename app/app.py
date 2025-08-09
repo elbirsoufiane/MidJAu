@@ -21,6 +21,7 @@ import io
 from multiprocessing import Lock
 from subprocess import Popen
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
 load_dotenv()
 from redis import Redis
 from rq import Queue
@@ -37,7 +38,7 @@ from rq import Worker
 
 
 # from app.tasks import midjourney_all
-from app.tasks import run_mode
+from app.tasks import run_mode, run_canva
 
 from rq.job import Job
 from rq.exceptions import NoSuchJobError
@@ -71,6 +72,7 @@ MODE_RUNTIME = {
     "U3": 42,
     "U4": 42,
     "All": 58,
+    "Canva": 30,
 }
 
 # Average runtime of a queued job in seconds (for ETA of queue start)
@@ -646,6 +648,83 @@ def dashboard():
         queue_position=None,
         queue_eta_minutes=None,
     )
+
+
+@app.route("/canva", methods=["GET", "POST"])
+def canva():
+    if "email" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        email = session["email"]
+        spreadsheet = request.files.get("spreadsheet")
+        image_files = request.files.getlist("images")
+        api_key = request.form.get("api_key", "").strip()
+        template_id = request.form.get("template_id", "").strip()
+
+        if not spreadsheet or not api_key or not template_id:
+            flash("❌ Missing required fields.", "error")
+            return render_template("canva.html")
+
+        try:
+            file_bytes = spreadsheet.read()
+            df = pd.read_excel(BytesIO(file_bytes))
+        except Exception:
+            flash("❌ Failed to read spreadsheet.", "error")
+            return render_template("canva.html")
+
+        required_cols = {"images", "title"}
+        missing = required_cols - set(df.columns)
+        if missing:
+            flash(f"❌ Missing columns: {', '.join(missing)}", "error")
+            return render_template("canva.html")
+
+        prompts_path = get_user_prompts_path(email)
+        os.makedirs(os.path.dirname(prompts_path), exist_ok=True)
+        with open(prompts_path, "wb") as f:
+            f.write(file_bytes)
+
+        image_dir = get_user_images_dir(email)
+        os.makedirs(image_dir, exist_ok=True)
+        image_map = {}
+        for fobj in image_files:
+            if fobj.filename:
+                fname = secure_filename(fobj.filename)
+                path = os.path.join(image_dir, fname)
+                fobj.save(path)
+                image_map[fname] = path
+
+        rows = df.to_dict(orient="records")
+        for row in rows:
+            img_name = row.get("images")
+            row["image_path"] = image_map.get(img_name)
+
+        q = get_user_queue(email)
+        job = q.enqueue(
+            run_canva,
+            rows,
+            api_key,
+            template_id,
+            job_timeout=7200,
+            result_ttl=0,
+            on_success=clear_job_id_on_success,
+            meta={
+                "user_email": email,
+                "mode": "Canva",
+                "total_prompts": len(rows),
+                "completed_prompts": 0,
+            },
+        )
+        set_job_id(email, job.id)
+        if not ensure_worker_for_queue(q.name, timeout=30, poll=3):
+            app.logger.warning("[worker-start] No active workers after waiting.")
+            flash("❌ No active workers available. Please try again later.", "error")
+            return render_template("canva.html", start_failed=True)
+
+        flash("✅ Canva job started", "success")
+        return render_template("canva.html")
+
+    return render_template("canva.html")
 
 
 @app.route("/live_output")
