@@ -2,15 +2,12 @@
 """Monitor Redis queues and manage existing Fly.io machines.
 
 This script watches RQ queues and ensures a pool of pre-created Fly.io
-Machines are started when work arrives and stopped or suspended after a
-period of inactivity.
+Machines are started when work arrives.
 
 Environment variables:
     REDIS_URL              Redis connection URL.
     POLL_INTERVAL_SEC      Seconds between queue checks (default: 30).
-    INACTIVITY_TIMEOUT_SEC Seconds of idle time before scaling down (default: 300).
     MAX_RUNNING_PER_TIER   Maximum running machines per tier (default: 1).
-    SCALE_DOWN_ACTION      "stop" or "suspend" for idle machines (default: stop).
 
 Tier specific variables (repeat for tiers 1-3):
     TIER{N}_APP            Fly app name (default: midjau-worker-tier{N}).
@@ -31,9 +28,7 @@ from rq import Queue
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SEC", "30"))
-INACTIVITY_TIMEOUT = int(os.getenv("INACTIVITY_TIMEOUT_SEC", "300"))
 MAX_RUNNING = int(os.getenv("MAX_RUNNING_PER_TIER", "1"))
-SCALE_DOWN_ACTION = os.getenv("SCALE_DOWN_ACTION", "stop").lower()
 
 
 def _run_flyctl(*args: str) -> subprocess.CompletedProcess[str] | None:
@@ -90,13 +85,6 @@ def start_machine(app: str, machine_id: str, state: str | None) -> None:
     _run_flyctl("machines", cmd, machine_id, "--app", app)
 
 
-def stop_or_suspend(app: str, machine_id: str) -> None:
-    """Stop or suspend a machine based on SCALE_DOWN_ACTION."""
-    action = "suspend" if SCALE_DOWN_ACTION == "suspend" else "stop"
-    print(f"{action.capitalize()}ping machine {machine_id} in {app}")
-    _run_flyctl("machines", action, machine_id, "--app", app)
-
-
 def select_next_machine(tier: dict, states: Dict[str, str]) -> Tuple[str | None, str | None]:
     """Round-robin selection of the next machine to start."""
     machines = tier["machines"]
@@ -115,7 +103,6 @@ def select_next_machine(tier: dict, states: Dict[str, str]) -> Tuple[str | None,
 def monitor() -> None:
     """Main monitoring loop."""
     redis_conn = Redis.from_url(REDIS_URL)
-    last_activity = {tier["name"]: time.time() for tier in TIERS}
 
     while True:
         for tier in TIERS:
@@ -127,18 +114,12 @@ def monitor() -> None:
             running_count = len(running_ids)
 
             if q_len > 0:
-                last_activity[tier["name"]] = time.time()
                 desired = min(len(tier["machines"]), MAX_RUNNING, q_len)
                 to_start = desired - running_count
                 for _ in range(max(0, to_start)):
                     machine_id, state = select_next_machine(tier, states)
                     if machine_id:
                         start_machine(app, machine_id, state)
-            else:
-                idle_for = time.time() - last_activity[tier["name"]]
-                if running_count > 0 and idle_for > INACTIVITY_TIMEOUT:
-                    for machine_id in running_ids:
-                        stop_or_suspend(app, machine_id)
         time.sleep(POLL_INTERVAL)
 
 
