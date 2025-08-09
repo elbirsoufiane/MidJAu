@@ -25,6 +25,14 @@ fly apps create my-app-worker    # only once
 fly deploy -c fly.worker.toml --app my-app-worker
 ```
 
+### Autoscaler process
+`fly.autoscaler.toml` builds `autoscaler.Dockerfile` and runs the queue monitor
+that scales worker machines up or down.
+Deploy it with:
+```bash
+fly deploy -c fly.autoscaler.toml
+```
+
 ### Required environment variables
 Both apps require the following environment variables (usually set as Fly
 secrets):
@@ -47,6 +55,8 @@ fly deploy --config fly.worker.tier1.toml --dockerfile worker.tier1.dockerfile -
 fly deploy --config fly.worker.tier2.toml --dockerfile worker.tier2.dockerfile --app midjau-worker-tier2 --no-cache
 
 fly deploy --config fly.worker.tier3.toml --dockerfile worker.tier3.dockerfile --app midjau-worker-tier3 --no-cache
+
+fly deploy -c fly.autoscaler.toml
 
 ### Commands to show logs
 fly logs --app midjau-web
