@@ -44,6 +44,8 @@
 <div id="status-msg" style="margin-top: 10px; font-style: italic; text-align: center;"></div>
 <div id="login-flag" data-just-logged-in="{{ just_logged_in | lower }}"></div>
 
+<audio id="completion-sound" src="{{ url_for('static', filename='completion.mp3') }}" preload="auto" hidden></audio>
+
 <script>
   let outputCleared = false;
   let suppressDownload = true;

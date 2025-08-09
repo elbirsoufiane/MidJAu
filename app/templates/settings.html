@@ -4,16 +4,6 @@
 <div class="settings-container">
   <h2 class="title">⚙️ Settings</h2>
 
-
-  <!-- {% if request.method == 'POST' %}
-    <script>
-      document.addEventListener("DOMContentLoaded", function() {
-        showToast("✅ Settings saved!", "success");
-      });
-    </script>
-  {% endif %} -->
-
-
   <form method="POST">
     <label>User Token:</label>
     <input type="text" name="user_token" value="{{ settings['USER TOKEN'] }}">

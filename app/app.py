@@ -196,19 +196,6 @@ def check_license_and_quota(email, license_key):
         return {"success": False, "reason": "Quota check failed"}
     
 
-# @app.route('/queue_eta')
-# def queue_eta():
-#     if "email" not in session:
-#         return {"error": "Unauthorized"}, 401
-#     email = session["email"]
-#     num_workers = get_active_worker_count(redis_conn)
-#     # Fallback: Ensure at least 1 worker to avoid division by zero
-#     if not num_workers:
-#         num_workers = 1
-#     position, eta_minutes = estimate_queue_eta_parallel(email, tier_queue, redis_conn, num_workers=num_workers)
-#     return {"position": position, "eta_minutes": eta_minutes}
-
-
 
 FLY_API = "https://api.machines.dev/v1"
 FLY_TOKEN = os.getenv("FLY_API_TOKEN")
@@ -339,12 +326,6 @@ def dashboard():
     if "email" not in session:
         return redirect(url_for("login"))
 
-    # filename = None
-    # email = session["email"]
-    # mode = None
-    # row_count = None
-    # duration_estimate = None
-    # queue_eta = None
 
     email = session["email"]
 
@@ -448,44 +429,6 @@ def dashboard():
                 pass  # Remove stale key below
             remove_job_id(email)
 
-        # if file:
-
-        #     # Prepare in-memory file for Tigris
-        #     excel_stream = BytesIO(file.read())
-        #     key = f"Users/{email}/prompts.xlsx"
-
-        #     success = upload_file_obj(excel_stream, key)
-
-        #     if not success:
-        #         flash("❌ Failed to upload prompts Excel file to cloud storage", "error")
-        #         return render_template(
-        #             "dashboard.html",
-        #             filename=None,
-        #             selected_mode=mode,
-        #             row_count=row_count,
-        #             duration_estimate=duration_estimate,
-        #             queue_eta=queue_eta,
-        #         )
-
-        #     # Count rows for ETA calculations
-        #     # try:
-        #     #     excel_stream.seek(0)
-        #     #     df = pd.read_excel(excel_stream)
-        #     #     row_count = len(df.get("prompt", df.iloc[:,0]).dropna())
-        #     # except Exception as e:
-        #     #     print("Row count failed", e)
-        #     #     row_count = 0
-
-        #     try:
-        #         excel_stream.seek(0)
-        #         df = pd.read_excel(excel_stream)
-        #         if "prompt" in df.columns:
-        #             row_count = df["prompt"].dropna().size
-        #         else:
-        #             row_count = len(df)
-        #     except Exception as e:
-        #         print("Row count failed", e)
-        #         row_count = 0
 
         if file:
             file_bytes = file.read()
@@ -639,72 +582,10 @@ def dashboard():
                 key = session.get("saved_key") or session.get("key")
                 print("🔎 ENQUEUE: key =", key)
 
-                # # Select queue name based on tier (customize as needed)
-                # queue_name = "default"  # fallback
-                # if tier in {"Tier1", "Tier2", "Tier3"}:
-                #     queue_name = tier
 
-                # Create the queue object
-                # tier_queue = Queue(name=queue_name, connection=redis_conn)
                 q = get_user_queue(email)
 
-                # num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
-                # if not num_workers:
-                #     worker_app = {
-                #         "Tier1": "midjau-worker-tier1",
-                #         "Tier2": "midjau-worker-tier2",
-                #         "Tier3": "midjau-worker-tier3",
-                #     }.get(q.name) or os.getenv("WORKER_APP")
-                #     if worker_app:
-                #         try:
-                #             subprocess.run(
-                #                 ["fly", "machines", "start", worker_app],
-                #                 check=True,
-                #                 stdout=subprocess.PIPE,
-                #                 stderr=subprocess.PIPE,
-                #             )
-                #         except Exception as e:
-                #             flash(f"❌ Failed to start worker: {e}", "error")
-                #             return render_template(
-                #                 "dashboard.html",
-                #                 filename=filename,
-                #                 selected_mode=mode,
-                #                 row_count=row_count,
-                #                 duration_estimate=duration_estimate,
-                #                 queue_eta=queue_eta,
-                #                 start_failed=True,
-                #                 queue_position=None,
-                #                 queue_eta_minutes=None,
-                #             )
-                #         # num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
-                #     poll_interval = 5
-                #     timeout = 10
-                #     start_time = time.time()
-                #     while (
-                #         get_active_worker_count(redis_conn, queue_name=q.name) == 0
-                #         and time.time() - start_time < timeout
-                #     ):
-                #         app.logger.info("Waiting for worker to become active...")
-                #         time.sleep(poll_interval)
-                #     num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
 
-
-                #     if not num_workers:
-                #         app.logger.warning("No active workers available after waiting.")
-                #         flash("❌ No active workers available. Please try again later.", "error")
-                #         return render_template(
-                #             "dashboard.html",
-                #             filename=filename,
-                #             selected_mode=mode,
-                #             row_count=row_count,
-                #             duration_estimate=duration_estimate,
-                #             queue_eta=queue_eta,
-                #             start_failed=True,
-                #             queue_position=None,
-                #             queue_eta_minutes=None,
-                #         )
-                #     else:
-                #         app.logger.info("Worker detected, proceeding to enqueue job.")
                 
                 job = q.enqueue(
                     run_mode,
@@ -712,7 +593,7 @@ def dashboard():
                     email,
                     presigned_url,
                     key,
-                    job_timeout=3600,
+                    job_timeout=7200,
                     result_ttl=0,
                     on_success=clear_job_id_on_success,
                     meta={
