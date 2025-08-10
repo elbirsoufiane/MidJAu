@@ -11,6 +11,8 @@ import pandas as pd
 import requests
 from redis import Redis
 from rq import get_current_job
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 
 from .cancel_job_error import CancelJobError
 from .tigris_utils import download_file_obj, upload_file_path
@@ -388,12 +390,6 @@ class MidjourneyRunner:
                 self.log(
                     "✅ Execution completed. Images saved in a ZIP folder under downloads."
                 )
-                try:
-                    for fname in os.listdir(self.OUTPUT_DIR):
-                        os.remove(os.path.join(self.OUTPUT_DIR, fname))
-                    os.remove(zip_path)
-                except Exception as e:  # pragma: no cover - defensive
-                    self.log(f"⚠️ Cleanup error: {e}")
             else:
                 self.log("❌ Failed to upload ZIP archive.")
 
@@ -408,6 +404,43 @@ class MidjourneyRunner:
                     self.log(f"⚠️ Failed to delete local failed_prompts.json: {e}")
             else:
                 self.log("❌ Failed to upload failed_prompts.json.")
+
+        workbook_path = os.path.join(os.path.dirname(self.OUTPUT_DIR), "images.xlsx")
+        try:
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["index", "filename", "image", "title"])
+            for fname in sorted(os.listdir(self.OUTPUT_DIR)):
+                fpath = os.path.join(self.OUTPUT_DIR, fname)
+                if os.path.isfile(fpath):
+                    index = fname.split("_", 1)[0]
+                    row = ws.max_row + 1
+                    ws.cell(row=row, column=1, value=int(index) if index.isdigit() else index)
+                    ws.cell(row=row, column=2, value=fname)
+                    img = XLImage(fpath)
+                    ws.add_image(img, f"C{row}")
+                    ws.cell(row=row, column=4, value="")
+            wb.save(workbook_path)
+            if upload_file_path(workbook_path, f"Users/{user_email}/images.xlsx"):
+                self.log("✅ Images workbook uploaded.")
+            else:
+                self.log("❌ Failed to upload images.xlsx.")
+        except Exception as e:
+            self.log(f"⚠️ Failed to create images.xlsx: {e}")
+        finally:
+            try:
+                if os.path.exists(workbook_path):
+                    os.remove(workbook_path)
+            except Exception as e:  # pragma: no cover - defensive
+                self.log(f"⚠️ Failed to delete local images.xlsx: {e}")
+
+        try:
+            for fname in os.listdir(self.OUTPUT_DIR):
+                os.remove(os.path.join(self.OUTPUT_DIR, fname))
+            if zip_path and os.path.exists(zip_path):
+                os.remove(zip_path)
+        except Exception as e:  # pragma: no cover - defensive
+            self.log(f"⚠️ Cleanup error: {e}")
 
         self.log(
             f"\n⏱️ The run took {int(total // 60)} min {int(total % 60)} sec to complete."

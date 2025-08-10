@@ -792,6 +792,31 @@ def download_zip():
         return "ZIP file not available", 404
 
 
+@app.route('/download_images_excel')
+def download_images_excel():
+    if "email" not in session:
+        return "Unauthorized", 401
+
+    email = session["email"]
+    excel_key = f"Users/{email}/images.xlsx"
+
+    excel_stream = download_file_obj(excel_key)
+    if not excel_stream:
+        flash("❌ Excel file not found in cloud storage", "error")
+        return "Excel file not available", 404
+
+    try:
+        excel_stream.seek(0)
+        return send_file(
+            excel_stream,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name='images.xlsx'
+        )
+    except Exception as e:
+        flash(f"❌ Failed to send Excel file: {e}", "error")
+        return "Excel file not available", 404
+
 from openpyxl import Workbook
 from flask import make_response
 
@@ -861,7 +886,12 @@ def cleanup_files():
             if os.path.isfile(fpath):
                 os.remove(fpath)
     delete_file(f"Users/{email}/images.zip")
-    
+
+    images_excel_path = os.path.join(os.path.dirname(image_dir), "images.xlsx")
+    if os.path.exists(images_excel_path):
+        os.remove(images_excel_path)
+    delete_file(f"Users/{email}/images.xlsx")
+
     # Delete the failed_prompts.json file
     failed_path = get_user_failed_prompts_path(email)
     if os.path.exists(failed_path):
@@ -928,6 +958,11 @@ def cancel_script():
             if os.path.isfile(fpath):
                 os.remove(fpath)
     delete_file(f"Users/{email}/images.zip")
+
+    images_excel_path = os.path.join(os.path.dirname(image_dir), "images.xlsx")
+    if os.path.exists(images_excel_path):
+        os.remove(images_excel_path)
+    delete_file(f"Users/{email}/images.xlsx")
 
     if os.path.exists(failed_path):
         os.remove(failed_path)
