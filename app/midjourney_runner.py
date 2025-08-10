@@ -13,6 +13,12 @@ from redis import Redis
 from rq import get_current_job
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import (
+    AnchorMarker,
+    OneCellAnchor,
+    XDRPositiveSize2D as Dimension,
+    pixels_to_EMU,
+)
 
 from .cancel_job_error import CancelJobError
 from .tigris_utils import download_file_obj, upload_file_path
@@ -418,7 +424,13 @@ class MidjourneyRunner:
                     ws.cell(row=row, column=1, value=int(index) if index.isdigit() else index)
                     ws.cell(row=row, column=2, value=fname)
                     img = XLImage(fpath)
-                    ws.add_image(img, f"C{row}")
+                    marker = AnchorMarker(col=2, colOff=0, row=row-1, rowOff=0)
+                    size = Dimension(pixels_to_EMU(img.width), pixels_to_EMU(img.height))
+                    img.anchor = OneCellAnchor(_from=marker, ext=size)
+                    ws.add_image(img)
+                    ws.row_dimensions[row].height = img.height * 0.75
+                    current_width = ws.column_dimensions['C'].width or 0
+                    ws.column_dimensions['C'].width = max(current_width, img.width * 0.14)
                     ws.cell(row=row, column=4, value="")
             wb.save(workbook_path)
             if upload_file_path(workbook_path, f"Users/{user_email}/images.xlsx"):
