@@ -283,8 +283,24 @@
               window.URL.revokeObjectURL(url);
             })
             .catch(err => console.error("Failed prompt download error:", err));
+          const imagesExcelDownload = fetch("/download_images_excel")
+            .then(res => {
+              if (!res.ok) throw new Error("Images Excel file not found");
+              return res.blob();
+            })
+            .then(blob => {
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = "images.xlsx";
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              window.URL.revokeObjectURL(url);
+            })
+            .catch(err => console.error("Images Excel download error:", err));
 
-          const allDownloads = Promise.all([zipDownload, failedExcelDownload]);
+          const allDownloads = Promise.all([zipDownload, failedExcelDownload, imagesExcelDownload]);
           const fallback = new Promise(resolve => setTimeout(resolve, 10000));
 
           Promise.race([allDownloads, fallback])
