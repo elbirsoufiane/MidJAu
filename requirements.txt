@@ -29,3 +29,5 @@ zope.interface==7.2
 rq>=1.10.0
 redis==4.6.0
 boto3==1.39.16
+Pillow>=10.0.0
+
