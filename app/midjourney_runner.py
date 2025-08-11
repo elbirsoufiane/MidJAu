@@ -4,6 +4,7 @@ import time
 import uuid
 import difflib
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from urllib.parse import urlparse
 
@@ -302,6 +303,22 @@ class MidjourneyRunner:
         else:
             self.log("✅ All images saved successfully.")
 
+    def _create_images_zip(self, output_dir: str, zip_path: str):
+        """Create a ZIP archive of all images in ``output_dir``."""
+        try:
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fname in os.listdir(output_dir):
+                    fpath = os.path.join(output_dir, fname)
+                    if os.path.isfile(fpath):
+                        zf.write(fpath, arcname=fname)
+        except Exception as e:  # pragma: no cover - defensive
+            self.log(f"⚠️ Failed to create ZIP: {e}")
+            try:
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except Exception:
+                pass
+
     def _create_images_workbook(self, output_dir: str, workbook_path: str):
         """Create an Excel workbook with images inserted into cells.
 
@@ -404,17 +421,20 @@ class MidjourneyRunner:
         total = time.time() - start
 
         zip_path = os.path.join(os.path.dirname(self.OUTPUT_DIR), "images.zip")
-        try:
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for fname in os.listdir(self.OUTPUT_DIR):
-                    fpath = os.path.join(self.OUTPUT_DIR, fname)
-                    if os.path.isfile(fpath):
-                        zf.write(fpath, arcname=fname)
-        except Exception as e:  # pragma: no cover - defensive
-            self.log(f"⚠️ Failed to create ZIP: {e}")
-            zip_path = None
+        workbook_path = os.path.join(os.path.dirname(self.OUTPUT_DIR), "images.xlsx")
 
-        if zip_path and os.path.exists(zip_path):
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            zip_future = ex.submit(self._create_images_zip, self.OUTPUT_DIR, zip_path)
+            workbook_future = ex.submit(
+                self._create_images_workbook, self.OUTPUT_DIR, workbook_path
+            )
+            zip_future.result()
+            try:
+                workbook_future.result()
+            except Exception as e:
+                self.log(f"⚠️ Failed to create images.xlsx: {e}")
+
+        if os.path.exists(zip_path):
             if upload_file_path(zip_path, f"Users/{user_email}/images.zip"):
                 self.log(
                     "✅ Execution completed. Images saved in a ZIP folder under downloads."
@@ -434,27 +454,19 @@ class MidjourneyRunner:
             else:
                 self.log("❌ Failed to upload failed_prompts.json.")
 
-        workbook_path = os.path.join(os.path.dirname(self.OUTPUT_DIR), "images.xlsx")
-        try:
-            self._create_images_workbook(self.OUTPUT_DIR, workbook_path)
+        if os.path.exists(workbook_path):
             if upload_file_path(workbook_path, f"Users/{user_email}/images.xlsx"):
                 self.log("✅ Images workbook uploaded.")
             else:
                 self.log("❌ Failed to upload images.xlsx.")
-        except Exception as e:
-            self.log(f"⚠️ Failed to create images.xlsx: {e}")
-        finally:
-            try:
-                if os.path.exists(workbook_path):
-                    os.remove(workbook_path)
-            except Exception as e:  # pragma: no cover - defensive
-                self.log(f"⚠️ Failed to delete local images.xlsx: {e}")
 
         try:
             for fname in os.listdir(self.OUTPUT_DIR):
                 os.remove(os.path.join(self.OUTPUT_DIR, fname))
-            if zip_path and os.path.exists(zip_path):
+            if os.path.exists(zip_path):
                 os.remove(zip_path)
+            if os.path.exists(workbook_path):
+                os.remove(workbook_path)
         except Exception as e:  # pragma: no cover - defensive
             self.log(f"⚠️ Cleanup error: {e}")
 
