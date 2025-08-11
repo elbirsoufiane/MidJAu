@@ -325,28 +325,38 @@ class MidjourneyRunner:
         Uses XlsxWriter to insert each image so it resides inside the cell.
         Row heights and column widths are adjusted to fit the images.
         """
-        wb = xlsxwriter.Workbook(workbook_path)
-        ws = wb.add_worksheet("Images")
-        ws.write_row(0, 0, ["index", "filename", "image", "title"])
+        wb = None
+        try:
+            wb = xlsxwriter.Workbook(workbook_path)
+            ws = wb.add_worksheet("Images")
+            ws.write_row(0, 0, ["index", "filename", "image", "title"])
 
-        row = 1
-        max_width = 0
-        for fname in sorted(os.listdir(output_dir)):
-            fpath = os.path.join(output_dir, fname)
-            if os.path.isfile(fpath):
-                index = fname.split("_", 1)[0]
-                ws.write(row, 0, int(index) if index.isdigit() else index)
-                ws.write(row, 1, fname)
-                ws.insert_image(row, 2, fpath, {"object_position": 3})
-                with Image.open(fpath) as im:
-                    width, height = im.size
-                ws.set_row(row, height * 0.75)
-                max_width = max(max_width, width * 0.14)
-                ws.write(row, 3, "")
-                row += 1
+            row = 1
+            max_width = 0
+            for fname in sorted(os.listdir(output_dir)):
+                fpath = os.path.join(output_dir, fname)
+                if os.path.isfile(fpath):
+                    index = fname.split("_", 1)[0]
+                    ws.write(row, 0, int(index) if index.isdigit() else index)
+                    ws.write(row, 1, fname)
+                    ws.insert_image(row, 2, fpath, {"object_position": 3})
+                    with Image.open(fpath) as im:
+                        width, height = im.size
+                    ws.set_row(row, height * 0.75)
+                    max_width = max(max_width, width * 0.14)
+                    ws.write(row, 3, "")
+                    row += 1
 
-        ws.set_column(2, 2, max_width)
-        wb.close()
+            ws.set_column(2, 2, max_width)
+        except (MemoryError, TimeoutError, Exception) as e:
+            self.log(f"⚠️ Workbook generation failed: {e}")
+            raise
+        finally:
+            if wb:
+                try:
+                    wb.close()
+                except Exception as e:  # pragma: no cover - defensive
+                    self.log(f"⚠️ Failed to close workbook: {e}")
 
     # ------------------------------------------------------------------
     # Main entry point
