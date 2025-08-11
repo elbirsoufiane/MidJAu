@@ -333,7 +333,12 @@ class MidjourneyRunner:
 
             row = 1
             max_width = 0
-            for fname in sorted(os.listdir(output_dir)):
+
+            def _numeric_sort_key(n: str):
+                head = n.split("_", 1)[0]
+                return (0, int(head)) if head.isdigit() else (1, n)
+
+            for fname in sorted(os.listdir(output_dir), key=_numeric_sort_key):
                 fpath = os.path.join(output_dir, fname)
                 if os.path.isfile(fpath):
                     index = fname.split("_", 1)[0]
