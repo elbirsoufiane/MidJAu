@@ -93,17 +93,19 @@
     fetch('/queue_eta')
       .then(res => res.json())
       .then(data => {
-        let msg = "";
+        let msg = null;
         const mode = document.getElementById("selectedMode")?.value || "";
         if (isJobRunning && (data.num_workers === 0 || data.position == null)) {
           return;
         }
         if (data.position === 0) {
-          isJobRunning = true;
-          msg = "<b>Your job is running now!</b>";
-          if (!jobProgressInterval) {
-            updateJobProgress();
-            jobProgressInterval = setInterval(updateJobProgress, 3000);
+          if (!isJobRunning) {
+            isJobRunning = true;
+            msg = "<b>Your job is running now!</b>";
+            if (!jobProgressInterval) {
+              updateJobProgress();
+              jobProgressInterval = setInterval(updateJobProgress, 3000);
+            }
           }
         } else if (data.position > 0) {
           isJobRunning = false;
@@ -127,7 +129,9 @@
             jobProgressInterval = null;
           }
         }
-        document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
+        if (msg !== null) {
+          document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
+        }
       })
       .catch(e => {
         // Optionally handle fetch errors
