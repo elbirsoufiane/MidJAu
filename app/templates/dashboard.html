@@ -115,6 +115,9 @@
             jobProgressInterval = null;
             if (etaBox) etaBox.innerHTML = "";
           }
+        } else if (data.position == null && jobProgressInterval) {
+          // Keep previous message if we believe the job is still running
+          return;
         } else {
           msg = "Not running! Upload an Excel file, select your mode and hit Start";
           if (jobProgressInterval) {
