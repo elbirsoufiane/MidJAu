@@ -49,6 +49,7 @@
 <script>
   let outputCleared = false;
   let suppressDownload = true;
+  let isJobRunning = false;
   const justLoggedIn = document.getElementById("login-flag")?.dataset.justLoggedIn === "true";
 
   if (justLoggedIn && localStorage.getItem("scriptRunning") !== "true") {
@@ -94,36 +95,36 @@
       .then(data => {
         let msg = "";
         const mode = document.getElementById("selectedMode")?.value || "";
-        const etaBox = document.getElementById("job-eta-box");
-        if (data.num_workers === 0) {
-          msg = "<b>Not running! Upload an Excel file, select your mode and hit Start</b>";
-          if (jobProgressInterval) {
-            clearInterval(jobProgressInterval);
-            jobProgressInterval = null;
-            if (etaBox) etaBox.innerHTML = "";
-          }
-        } else if (data.position === 0) {
+        if (isJobRunning && (data.num_workers === 0 || data.position == null)) {
+          return;
+        }
+        if (data.position === 0) {
+          isJobRunning = true;
           msg = "<b>Your job is running now!</b>";
           if (!jobProgressInterval) {
             updateJobProgress();
             jobProgressInterval = setInterval(updateJobProgress, 3000);
           }
         } else if (data.position > 0) {
+          isJobRunning = false;
           msg = `<b>Queued in ${mode} – position ${data.position}, ~${data.eta_minutes} min to start</b>`;
           if (jobProgressInterval) {
             clearInterval(jobProgressInterval);
             jobProgressInterval = null;
-            if (etaBox) etaBox.innerHTML = "";
           }
-        } else if (data.position == null && jobProgressInterval) {
-          // Keep previous message if we believe the job is still running
-          return;
-        } else {
-          msg = "Not running! Upload an Excel file, select your mode and hit Start";
+        } else if (data.num_workers === 0) {
+          isJobRunning = false;
+          msg = "<b>Not running! Upload an Excel file, select your mode and hit Start.</b>";
           if (jobProgressInterval) {
             clearInterval(jobProgressInterval);
             jobProgressInterval = null;
-            if (etaBox) etaBox.innerHTML = "";
+          }
+        } else {
+          isJobRunning = false;
+          msg = "<b>Not running! Upload an Excel file, select your mode and hit Start.</b>";
+          if (jobProgressInterval) {
+            clearInterval(jobProgressInterval);
+            jobProgressInterval = null;
           }
         }
         document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
@@ -141,18 +142,30 @@
     fetch('/job_progress')
       .then(res => res.json())
       .then(data => {
-        let etaBox = document.getElementById("job-eta-box");
-        if (!etaBox) return;
+        const area = document.getElementById("queue-eta-area");
+        if (!area) return;
         if (data.status === "running") {
           const min = Math.ceil(data.remaining_seconds / 60);
-          etaBox.innerHTML = `<b>Estimated time remaining: ${min} min</b> (${data.completed_prompts} / ${data.total_prompts} prompts done)`;
+          area.innerHTML = `<p><b>Your job is running now! Estimated time remaining: ${min} min</b> (${data.completed_prompts} / ${data.total_prompts} prompts done)</p>`;
         } else {
-          etaBox.innerHTML = "";
+          isJobRunning = false;
+          if (jobProgressInterval) {
+            clearInterval(jobProgressInterval);
+            jobProgressInterval = null;
+          }
+          area.innerHTML = "<p>Not running! Upload an Excel file, select your mode and hit Start.</p>";
         }
       })
       .catch(() => {
-        // Optionally show "unknown" state
-        document.getElementById("job-eta-box").innerHTML = "";
+        isJobRunning = false;
+        if (jobProgressInterval) {
+          clearInterval(jobProgressInterval);
+          jobProgressInterval = null;
+        }
+        const area = document.getElementById("queue-eta-area");
+        if (area) {
+          area.innerHTML = "<p>Not running! Upload an Excel file, select your mode and hit Start.</p>";
+        }
       });
   }
 
