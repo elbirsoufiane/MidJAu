@@ -188,7 +188,7 @@ def check_license_and_quota(email, license_key):
         "key": license_key
     }
     try:
-        resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=10)
+        resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=30)
         resp.raise_for_status()
         return resp.json()  # Should have success, tier, dailyQuota, jobQuota, promptsToday
     except Exception as e:
