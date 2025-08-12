@@ -236,6 +236,15 @@ def queue_eta():
     if num <= 0:
         return {"num_workers": 0, "position": None, "eta_minutes": None}
     pos, eta = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num)
+    if pos is None:
+        job_id = get_job_id(email)
+        if job_id:
+            try:
+                job = Job.fetch(job_id, connection=redis_conn)
+                if job.get_status() == "started":
+                    pos = 0
+            except NoSuchJobError:
+                pass
     return {"num_workers": num, "position": pos, "eta_minutes": eta}
 
 
