@@ -90,58 +90,54 @@
   runBtn?.addEventListener("click", unlockAudio, { once: false });
   document.addEventListener("touchstart", unlockAudio, { once: true });
 
-  // Live ETA update from backend
-  function updateQueueEta() {
-    fetch('/queue_eta')
-      .then(res => res.json())
-      .then(data => {
-        let msg = null;
-        const mode = document.getElementById("selectedMode")?.value || "";
-        if (isJobRunning && (data.num_workers === 0 || data.position == null)) {
-          return;
-        }
-        if (data.position === 0) {
-          if (!isJobRunning) {
-            isJobRunning = true;
-            msg = "<b>Your job is running now!</b>";
-            if (!jobProgressInterval) {
-              updateJobProgress();
-              jobProgressInterval = setInterval(updateJobProgress, 3000);
-            }
-          }
-        } else if (data.position > 0) {
-          isJobRunning = false;
-          msg = `<b>Queued in ${mode} – position ${data.position}, ~${data.eta_minutes} min to start</b>`;
-          if (jobProgressInterval) {
-            clearInterval(jobProgressInterval);
-            jobProgressInterval = null;
-          }
-        } else if (data.num_workers === 0) {
-          isJobRunning = false;
-          msg = "<b>Not running! Upload an Excel file, select your mode and hit Start.</b>";
-          if (jobProgressInterval) {
-            clearInterval(jobProgressInterval);
-            jobProgressInterval = null;
-          }
-        } else {
-          isJobRunning = false;
-          msg = "<b>Not running! Upload an Excel file, select your mode and hit Start.</b>";
-          if (jobProgressInterval) {
-            clearInterval(jobProgressInterval);
-            jobProgressInterval = null;
+  // Live ETA updates from backend via SSE
+  const queueSource = new EventSource('/queue_updates');
+  queueSource.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      let msg = null;
+      const mode = document.getElementById("selectedMode")?.value || "";
+      if (isJobRunning && (data.num_workers === 0 || data.position == null)) {
+        return;
+      }
+      if (data.position === 0) {
+        if (!isJobRunning) {
+          isJobRunning = true;
+          msg = "<b>Your job is running now!</b>";
+          if (!jobProgressInterval) {
+            updateJobProgress();
+            jobProgressInterval = setInterval(updateJobProgress, 3000);
           }
         }
-        if (msg !== null) {
-          document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
+      } else if (data.position > 0) {
+        isJobRunning = false;
+        msg = `<b>Queued in ${mode} – position ${data.position}, ~${data.eta_minutes} min to start</b>`;
+        if (jobProgressInterval) {
+          clearInterval(jobProgressInterval);
+          jobProgressInterval = null;
         }
-      })
-      .catch(e => {
-        // Optionally handle fetch errors
-        console.error("Queue ETA update failed:", e);
-      });
-  }
-  setInterval(updateQueueEta, 3000);  // every 10 seconds
-  updateQueueEta();  // also run on page load
+      } else if (data.num_workers === 0) {
+        isJobRunning = false;
+        msg = "<b>Not running! Upload an Excel file, select your mode and hit Start.</b>";
+        if (jobProgressInterval) {
+          clearInterval(jobProgressInterval);
+          jobProgressInterval = null;
+        }
+      } else {
+        isJobRunning = false;
+        msg = "<b>Not running! Upload an Excel file, select your mode and hit Start.</b>";
+        if (jobProgressInterval) {
+          clearInterval(jobProgressInterval);
+          jobProgressInterval = null;
+        }
+      }
+      if (msg !== null) {
+        document.getElementById("queue-eta-area").innerHTML = "<p>" + msg + "</p>";
+      }
+    } catch (e) {
+      console.error("Queue update failed:", e);
+    }
+  };
 
 
   function updateJobProgress() {
