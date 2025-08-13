@@ -61,8 +61,13 @@ LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "300"))  # seconds
 
 
 def get_cached_license_info(email: str, license_key: str) -> dict:
-    """Fetch license info, using Redis cache when possible."""
+    """Fetch license info, using Redis cache when possible.
+
+    If a fresh lookup fails, fall back to the last known value stored in Redis.
+    """
     cache_key = f"license_cache:{email}"
+    last_key = f"license_last:{email}"
+
     cached = redis_conn.get(cache_key)
     if cached:
         try:
@@ -71,11 +76,46 @@ def get_cached_license_info(email: str, license_key: str) -> dict:
             pass
 
     info = check_license_and_quota(email, license_key)
-    try:
-        redis_conn.setex(cache_key, LICENSE_CACHE_TTL, json.dumps(info))
-    except Exception as e:
-        print(f"Failed to cache license info: {e}")
+
+    if info.get("success"):
+        try:
+            redis_conn.setex(cache_key, LICENSE_CACHE_TTL, json.dumps(info))
+            redis_conn.set(last_key, json.dumps(info))
+        except Exception as e:
+            print(f"Failed to cache license info: {e}")
+        return info
+
+    # If lookup failed, attempt to return the last known value
+    last = redis_conn.get(last_key)
+    if last:
+        try:
+            return json.loads(last)
+        except Exception:
+            pass
+
     return info
+
+
+def trigger_license_validation(email: str, license_key: str) -> None:
+    """Kick off license validation in a background thread.
+
+    A placeholder status is stored immediately so the client can poll for
+    updates without waiting for the network request to complete.
+    """
+    status_key = f"license_status:{email}"
+    try:
+        redis_conn.setex(status_key, LICENSE_CACHE_TTL, json.dumps({"status": "pending"}))
+    except Exception:
+        pass
+
+    def _task():
+        info = get_cached_license_info(email, license_key)
+        try:
+            redis_conn.setex(status_key, LICENSE_CACHE_TTL, json.dumps(info))
+        except Exception:
+            pass
+
+    Thread(target=_task, daemon=True).start()
 
 
 def get_user_queue(email: str) -> Queue:
@@ -292,7 +332,7 @@ def check_license_and_quota(email, license_key):
         "key": license_key
     }
     try:
-        resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=30)
+        resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=5)
         resp.raise_for_status()
         return resp.json()  # Should have success, tier, dailyQuota, jobQuota, promptsToday
     except Exception as e:
@@ -449,29 +489,20 @@ def login():
         key = request.form["key"]
         remember = "remember" in request.form
 
-        try:
-            response = requests.get(LICENSE_VALIDATION_URL, params={"email": email, "key": key})
-            
-            print("✅ RAW RESPONSE:", response.text, flush=True)
-            print("✅ RESPONSE JSON:", response.json(), flush=True)
-            print("✅ RAW RESPONSE:", response.text)
-
-            data = response.json()
-            if data.get("success"):
-                session["email"] = email
-                session["key"] = key
-                if remember:
-                    session["saved_email"] = email
-                    session["saved_key"] = key
-                else:
-                    session.pop("saved_email", None)
-                    session.pop("saved_key", None)
-                init_user_if_missing(email)
-                flash("✅ Welcome! You have been logged in successfully", "success")
-                session["just_logged_in"] = True
-                return redirect(url_for("dashboard"))
-        except Exception as e:
-            print(f"❌ License validation error: {e}")
+        data = get_cached_license_info(email, key)
+        if data.get("success"):
+            session["email"] = email
+            session["key"] = key
+            if remember:
+                session["saved_email"] = email
+                session["saved_key"] = key
+            else:
+                session.pop("saved_email", None)
+                session.pop("saved_key", None)
+            init_user_if_missing(email)
+            flash("✅ Welcome! You have been logged in successfully", "success")
+            session["just_logged_in"] = True
+            return redirect(url_for("dashboard"))
 
         flash("❌ Invalid license. Please try again.", "error")
 
@@ -881,36 +912,51 @@ def subscription():
     email = session["email"]
     key   = session.get("saved_key") or session.get("key")
 
-    info = get_cached_license_info(email, key)
-    if not info.get("success"):
-        flash("⚠️ Unable to fetch subscription data.", "error")
-        return redirect(url_for("dashboard"))
-    
-    # ─── NEW BLOCK ───────────────────────────────────────────────
-    expiry_raw = info.get("expiry")              # "2025-08-11T23:00:00.000Z"
-    if expiry_raw:
-        date_only      = expiry_raw[:10]         # "2025-08-11"
-        expiry_pretty  = f"{date_only} at 12:00AM CST"
-    else:
-        expiry_pretty  = "—"
+    # Trigger background validation and immediately return placeholder UI
+    trigger_license_validation(email, key)
 
-    # • translate numeric tier → marketing name
-    TIER_NAMES = {
-        "Tier1": "Basic",
-        "Tier2": "Pro",
-        "Tier3": "Premium",
-    }
-    pretty_tier = TIER_NAMES.get(info.get("tier"), info.get("tier", "—"))
-    # ─────────────────────────────────────────────────────────────
+    last_raw = redis_conn.get(f"license_last:{email}")
+    last = {}
+    if last_raw:
+        try:
+            last = json.loads(last_raw)
+        except Exception:
+            pass
+
+    expiry_pretty = "Loading..."
+    tier_val = last.get("tier")
+    if tier_val:
+        TIER_NAMES = {"Tier1": "Basic", "Tier2": "Pro", "Tier3": "Premium"}
+        tier_val = TIER_NAMES.get(tier_val, tier_val)
+
+    if last.get("expiry"):
+        date_only = last["expiry"][:10]
+        expiry_pretty = f"{date_only} at 12:00AM CST"
 
     details = {
-        "tier": pretty_tier,
+        "tier": tier_val or "Loading...",
         "expiry": expiry_pretty,
-        "daily_quota": info.get("dailyQuota"),
-        "job_quota": info.get("jobQuota"),
-        "prompts_today": info.get("promptsToday"),
+        "daily_quota": last.get("dailyQuota", "—"),
+        "job_quota": last.get("jobQuota", "—"),
+        "prompts_today": last.get("promptsToday", "—"),
     }
     return render_template("subscription.html", details=details)
+
+
+@app.route("/license_status")
+def license_status():
+    if "email" not in session:
+        return {"error": "Unauthorized"}, 401
+
+    email = session["email"]
+    data = redis_conn.get(f"license_status:{email}")
+    if not data:
+        return {"status": "pending"}
+    try:
+        info = json.loads(data)
+    except Exception:
+        return {"status": "pending"}
+    return info
 
 
 @app.route('/download_zip')

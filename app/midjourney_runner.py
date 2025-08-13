@@ -36,7 +36,7 @@ def update_prompts_today(email, key, prompts_this_job):
         "promptsThisJob": prompts_this_job
     }
     try:
-        r = requests.post(endpoint, json=payload, timeout=30)
+        r = requests.post(endpoint, json=payload, timeout=5)
         r.raise_for_status()
         data = r.json()
         print("✅ PromptsToday updated:", data, flush=True)
