@@ -27,7 +27,9 @@
     </div>
 
       <div id="queue-eta-area" style="text-align:center; margin-top:10px;">
-        {% if queue_position is not none and queue_position > 0 %}
+        {% if queue_position is not none and queue_position == 0 %}
+          <p><b>Your job is running now! Estimated time remaining: {{ queued_duration }} min (0 / {{ queued_total_prompts }} prompts done).</b></p>
+        {% elif queue_position is not none and queue_position > 0 %}
           <p><b>Queued in {{ queued_mode }} – position {{ queue_position }}, ~{{ queue_eta_minutes }} min to start</b></p>
         {% else %}
           <p>Not running! Upload an Excel file, select your mode and hit Start.</p>
