@@ -345,6 +345,8 @@ def dashboard():
 
         selected_mode = queued_info.get('mode')
         initial_queue_pos = queued_info.get('queue_position')
+        queued_total_prompts = queued_info.get('total_prompts')
+        queued_duration = queued_info.get('duration_estimate')
 
         key = session.get("saved_key") or session.get("key")
         license_info = check_license_and_quota(email, key)
@@ -370,6 +372,8 @@ def dashboard():
             queue_eta_minutes=eta_minutes,
             queued_mode=selected_mode,
             queued_position=initial_queue_pos,
+            queued_total_prompts=queued_total_prompts,
+            queued_duration=queued_duration,
         )
 
     # Otherwise, continue with POST logic...
@@ -634,6 +638,8 @@ def dashboard():
                 session['dashboard_counters'] = {
                     'mode': mode,
                     'queue_position': position,
+                    'total_prompts': row_count,
+                    'duration_estimate': duration_estimate,
                 }
 
                 print("🚩 Set dashboard_counters in session:", session['dashboard_counters'], flush=True)
