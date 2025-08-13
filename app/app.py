@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, session, url_for, flash
+from flask import Flask, render_template, request, redirect, session, url_for, flash, Response
 from .user_utils import (
     init_user_if_missing,
     get_user_failed_prompts_path,
@@ -14,6 +14,7 @@ import time
 import subprocess
 import json
 from threading import Thread
+import heapq
 from flask import send_from_directory
 from flask import send_file
 import zipfile
@@ -101,6 +102,75 @@ TYPICAL_JOB_RUNTIME = 300
 # Redis hash used for tracking running jobs
 RUNNING_JOBS_HASH = "running_jobs"
 
+# Keys for cached queue information
+QUEUE_SNAPSHOT_KEY = "queue_snapshot"
+QUEUE_UPDATE_CHANNEL = "queue_updates"
+
+
+def refresh_queue_snapshot(interval: int = 5) -> None:
+    """Periodically cache worker counts and job snapshots in Redis.
+
+    A background thread calls this function to avoid expensive scans on
+    every request.  After updating the cache a small pubsub notification is
+    published so that SSE clients can react to the change.
+    """
+    while True:
+        try:
+            snapshot: dict[str, dict] = {}
+            for name in ["default", "Tier1", "Tier2", "Tier3"]:
+                queue = Queue(name=name, connection=redis_conn)
+
+                worker_count = sum(
+                    name in w.queue_names() for w in Worker.all(connection=redis_conn)
+                )
+
+                running_ids = queue.started_job_registry.get_job_ids()
+                queued_jobs = queue.jobs
+
+                # Simulate worker availability using a min-heap so we can
+                # pre-compute ETA for each job quickly.
+                worker_slots = [0] * max(worker_count, 1)
+                heapq.heapify(worker_slots)
+
+                job_info: dict[str, dict] = {}
+                now = time.time()
+
+                # First account for running jobs with remaining time
+                for jid in running_ids:
+                    remaining = TYPICAL_JOB_RUNTIME
+                    try:
+                        job = Job.fetch(jid, connection=redis_conn)
+                        if job.started_at:
+                            elapsed = now - job.started_at.timestamp()
+                            remaining = max(TYPICAL_JOB_RUNTIME - elapsed, 0)
+                    except Exception:
+                        pass
+
+                    start_in = heapq.heappop(worker_slots)
+                    heapq.heappush(worker_slots, start_in + remaining)
+                    job_info[jid] = {"position": 0, "eta_seconds": start_in}
+
+                # Then queued jobs
+                pos = len(job_info)
+                for job in queued_jobs:
+                    start_in = heapq.heappop(worker_slots)
+                    heapq.heappush(worker_slots, start_in + TYPICAL_JOB_RUNTIME)
+                    job_info[job.id] = {"position": pos, "eta_seconds": start_in}
+                    pos += 1
+
+                snapshot[name] = {"workers": worker_count, "jobs": job_info}
+
+            redis_conn.set(QUEUE_SNAPSHOT_KEY, json.dumps(snapshot))
+            redis_conn.publish(QUEUE_UPDATE_CHANNEL, "updated")
+        except Exception as exc:
+            # Do not crash the thread if something goes wrong; just log.
+            print(f"queue snapshot refresh failed: {exc}")
+        time.sleep(interval)
+
+
+# Launch background thread to maintain the cache
+Thread(target=refresh_queue_snapshot, daemon=True).start()
+
 
 def set_job_id(email: str, job_id: str) -> None:
     """Store the RQ job ID for a user in Redis."""
@@ -122,6 +192,18 @@ def clear_job_id_on_success(job, connection, result):
     email = job.meta.get("user_email")
     if email:
         remove_job_id(email)
+
+
+def get_cached_queue_info(queue_name: str) -> dict:
+    """Return cached snapshot for a queue."""
+    raw = redis_conn.get(QUEUE_SNAPSHOT_KEY)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data.get(queue_name, {}) if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 def estimate_queue_eta_parallel(email, queue, redis_conn, num_workers=1):
     """
@@ -254,21 +336,65 @@ def queue_eta():
 
     email = session["email"]
     q = get_user_queue(email)
-    num = get_active_worker_count(redis_conn, queue_name=q.name)
+    info = get_cached_queue_info(q.name)
+    num = info.get("workers", 0)
     if num <= 0:
         return {"num_workers": 0, "position": None, "eta_minutes": None}
-    pos, eta = estimate_queue_eta_parallel(email, q, redis_conn, num_workers=num)
-    if pos is None:
-        job_id = get_job_id(email)
-        if job_id:
-            try:
-                job = Job.fetch(job_id, connection=redis_conn)
-                if job.get_status() == "started":
-                    pos = 0
-            except NoSuchJobError:
-                pass
+
+    job_id = get_job_id(email)
+    pos = None
+    eta = None
+    jobs = info.get("jobs", {}) if isinstance(info, dict) else {}
+    if job_id and job_id in jobs:
+        data = jobs[job_id]
+        pos = data.get("position")
+        eta = int(data.get("eta_seconds", 0) / 60)
+
+    if pos is None and job_id:
+        # Fallback check if job already started but snapshot missed it
+        try:
+            job = Job.fetch(job_id, connection=redis_conn)
+            if job.get_status() == "started":
+                pos = 0
+        except NoSuchJobError:
+            pass
+
     return {"num_workers": num, "position": pos, "eta_minutes": eta}
 
+
+@app.route('/queue_updates')
+def queue_updates():
+    if "email" not in session:
+        return {"error": "Unauthorized"}, 401
+
+    email = session["email"]
+    queue_name = get_user_queue(email).name
+    job_id = get_job_id(email)
+
+    def build_update() -> str:
+        info = get_cached_queue_info(queue_name)
+        num = info.get("workers", 0)
+        pos = None
+        eta = None
+        jobs = info.get("jobs", {}) if isinstance(info, dict) else {}
+        if job_id and job_id in jobs:
+            data = jobs[job_id]
+            pos = data.get("position")
+            eta = int(data.get("eta_seconds", 0) / 60)
+        payload = json.dumps({"num_workers": num, "position": pos, "eta_minutes": eta})
+        return f"data: {payload}\n\n"
+
+    def event_stream():
+        pubsub = redis_conn.pubsub()
+        pubsub.subscribe(QUEUE_UPDATE_CHANNEL)
+        # send initial snapshot
+        yield build_update()
+        for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            yield build_update()
+
+    return Response(event_stream(), mimetype="text/event-stream")
 
 
 @app.route('/job_progress')
