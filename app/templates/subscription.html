@@ -56,27 +56,55 @@
 
      <div class="sub-row">
         <span class="sub-label">Tier</span>
-        <span class="sub-val">{{ details.tier }}</span>
+        <span class="sub-val" id="tier-val">{{ details.tier }}</span>
      </div>
 
      <div class="sub-row">
         <span class="sub-label">Expiry Date</span>
-        <span class="sub-val">{{ details.expiry }}</span>
+        <span class="sub-val" id="expiry-val">{{ details.expiry }}</span>
      </div>
 
      <div class="sub-row">
         <span class="sub-label">Daily Quota</span>
-        <span class="sub-val">{{ details.daily_quota }}</span>
+        <span class="sub-val" id="daily-quota-val">{{ details.daily_quota }}</span>
      </div>
 
      <div class="sub-row">
         <span class="sub-label">Job Quota</span>
-        <span class="sub-val">{{ details.job_quota }}</span>
+        <span class="sub-val" id="job-quota-val">{{ details.job_quota }}</span>
      </div>
 
      <div class="sub-row">
         <span class="sub-label">Prompts Processed Today</span>
-        <span class="sub-val">{{ details.prompts_today }}</span>
+        <span class="sub-val" id="prompts-today-val">{{ details.prompts_today }}</span>
      </div>
   </div>
+
+  <script>
+    function fetchLicenseStatus() {
+      fetch('/license_status')
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'pending') {
+            setTimeout(fetchLicenseStatus, 2000);
+            return;
+          }
+
+          const tierMap = { 'Tier1': 'Basic', 'Tier2': 'Pro', 'Tier3': 'Premium' };
+          document.getElementById('tier-val').textContent = tierMap[data.tier] || data.tier || '—';
+
+          if (data.expiry) {
+            const dateOnly = data.expiry.slice(0, 10);
+            document.getElementById('expiry-val').textContent = `${dateOnly} at 12:00AM CST`;
+          }
+
+          document.getElementById('daily-quota-val').textContent = data.dailyQuota ?? '—';
+          document.getElementById('job-quota-val').textContent = data.jobQuota ?? '—';
+          document.getElementById('prompts-today-val').textContent = data.promptsToday ?? '—';
+        })
+        .catch(() => setTimeout(fetchLicenseStatus, 2000));
+    }
+
+    fetchLicenseStatus();
+  </script>
 {% endblock %}
