@@ -55,10 +55,32 @@ process_lock = Lock()
 redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 # default_queue = Queue(connection=redis_conn)
 
+# Cache license lookups for a short time to avoid repeated network calls
+LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "300"))  # seconds
+
+
+def get_cached_license_info(email: str, license_key: str) -> dict:
+    """Fetch license info, using Redis cache when possible."""
+    cache_key = f"license_cache:{email}"
+    cached = redis_conn.get(cache_key)
+    if cached:
+        try:
+            return json.loads(cached)
+        except Exception:
+            pass
+
+    info = check_license_and_quota(email, license_key)
+    try:
+        redis_conn.setex(cache_key, LICENSE_CACHE_TTL, json.dumps(info))
+    except Exception as e:
+        print(f"Failed to cache license info: {e}")
+    return info
+
+
 def get_user_queue(email: str) -> Queue:
     """Return the proper RQ Queue object for this user’s tier."""
     key  = session.get("saved_key") or session.get("key")
-    info = check_license_and_quota(email, key)
+    info = get_cached_license_info(email, key)
     tier = (info or {}).get("tier", "default")
     name = tier if tier in {"Tier1", "Tier2", "Tier3"} else "default"
     return Queue(name=name, connection=redis_conn)
@@ -348,8 +370,6 @@ def dashboard():
         queued_total_prompts = queued_info.get('total_prompts')
         queued_duration = queued_info.get('duration_estimate')
 
-        key = session.get("saved_key") or session.get("key")
-        license_info = check_license_and_quota(email, key)
         q = get_user_queue(email)
 
         num_workers = get_active_worker_count(redis_conn, queue_name=q.name)
@@ -390,27 +410,13 @@ def dashboard():
         email = session["email"]
         key = session.get("saved_key") or session.get("key")
 
-        # 1. Call the Apps Script to get quotas
-        license_info = check_license_and_quota(email, key)
+        # 1. Call the Apps Script to get quotas (cached)
+        license_info = get_cached_license_info(email, key)
         tier = license_info.get("tier", "default")
         if not license_info.get("success"):
             flash("❌ License check/validation failed. Please try again.", "error")
             return redirect(url_for("dashboard"))
 
-
-        try:
-            response = requests.get(
-                LICENSE_VALIDATION_URL, params={"email": email, "key": key}
-            )
-            data = response.json()
-            if not data.get("success"):
-                session.clear()
-                flash("❌ Invalid license. Please try again.", "error")
-                session["license_failed"] = True
-                return redirect(url_for("login"))
-        except Exception as e:
-            flash(f"⚠️ License check failed: {e}", "error")
-            return redirect(url_for("dashboard"))
 
         # ⏩ Continue with script execution if license is still valid
         # Clear any previous live output log before proceeding
@@ -749,7 +755,7 @@ def subscription():
     email = session["email"]
     key   = session.get("saved_key") or session.get("key")
 
-    info = check_license_and_quota(email, key)
+    info = get_cached_license_info(email, key)
     if not info.get("success"):
         flash("⚠️ Unable to fetch subscription data.", "error")
         return redirect(url_for("dashboard"))
