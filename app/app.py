@@ -57,18 +57,12 @@ redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 # default_queue = Queue(connection=redis_conn)
 
 # Cache license lookups for a short time to avoid repeated network calls
-LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "300"))  # seconds
-# Last-known valid license info cache TTL (fallback when quota check fails)
-LICENSE_LAST_TTL = int(os.getenv("LICENSE_LAST_TTL", "86400"))  # seconds
+LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "3600"))  # seconds
 
 
 def get_cached_license_info(email: str, license_key: str) -> dict:
-    """Fetch license info, using Redis cache when possible.
-
-    If a fresh lookup fails, fall back to the last known value stored in Redis.
-    """
+    """Fetch license info, using a short-lived Redis cache when possible."""
     cache_key = f"license_cache:{email}"
-    last_key = f"license_last:{email}"
 
     cached = redis_conn.get(cache_key)
     if cached:
@@ -82,27 +76,8 @@ def get_cached_license_info(email: str, license_key: str) -> dict:
     if info.get("success"):
         try:
             redis_conn.setex(cache_key, LICENSE_CACHE_TTL, json.dumps(info))
-            # Store the last known valid info with a TTL to avoid indefinite reuse
-            redis_conn.setex(last_key, LICENSE_LAST_TTL, json.dumps(info))
         except Exception as e:
             print(f"Failed to cache license info: {e}")
-        return info
-
-    # If the license is invalid or expired, remove any previous cache and return immediately
-    if info.get("reason") != "Quota check failed":
-        try:
-            redis_conn.delete(last_key)
-        except Exception:
-            pass
-        return info
-
-    # On quota check failures (network/validation error), fall back to last known value
-    last = redis_conn.get(last_key)
-    if last:
-        try:
-            return json.loads(last)
-        except Exception:
-            pass
 
     return info
 
@@ -926,30 +901,30 @@ def subscription():
     # Trigger background validation and immediately return placeholder UI
     trigger_license_validation(email, key)
 
-    last_raw = redis_conn.get(f"license_last:{email}")
-    last = {}
-    if last_raw:
+    cached_raw = redis_conn.get(f"license_cache:{email}")
+    cached = {}
+    if cached_raw:
         try:
-            last = json.loads(last_raw)
+            cached = json.loads(cached_raw)
         except Exception:
             pass
 
     expiry_pretty = "Loading..."
-    tier_val = last.get("tier")
+    tier_val = cached.get("tier")
     if tier_val:
         TIER_NAMES = {"Tier1": "Basic", "Tier2": "Pro", "Tier3": "Premium"}
         tier_val = TIER_NAMES.get(tier_val, tier_val)
 
-    if last.get("expiry"):
-        date_only = last["expiry"][:10]
+    if cached.get("expiry"):
+        date_only = cached["expiry"][:10]
         expiry_pretty = f"{date_only} at 12:00AM CST"
 
     details = {
         "tier": tier_val or "Loading...",
         "expiry": expiry_pretty,
-        "daily_quota": last.get("dailyQuota", "—"),
-        "job_quota": last.get("jobQuota", "—"),
-        "prompts_today": last.get("promptsToday", "—"),
+        "daily_quota": cached.get("dailyQuota", "—"),
+        "job_quota": cached.get("jobQuota", "—"),
+        "prompts_today": cached.get("promptsToday", "—"),
     }
     return render_template("subscription.html", details=details)
 
