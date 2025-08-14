@@ -43,6 +43,7 @@ from app.tasks import run_mode
 from rq.job import Job
 from rq.exceptions import NoSuchJobError
 import shutil
+from functools import wraps
 
 
 
@@ -62,20 +63,26 @@ LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "300"))  # seconds
 LICENSE_LAST_TTL = int(os.getenv("LICENSE_LAST_TTL", "86400"))  # seconds
 
 
-def get_cached_license_info(email: str, license_key: str) -> dict:
-    """Fetch license info, using Redis cache when possible.
+def get_cached_license_info(email: str, license_key: str, force_refresh: bool = False) -> dict | None:
+    """Fetch license info from Redis cache, optionally forcing a refresh.
 
-    If a fresh lookup fails, fall back to the last known value stored in Redis.
+    When ``force_refresh`` is ``False`` only the cached value is returned.  If no
+    cache entry exists ``None`` is returned so the caller can decide whether to
+    trigger a fresh validation.  When ``force_refresh`` is ``True`` the license
+    server is queried and the result is stored in Redis.  On quota check
+    failures the last known valid value is used if available.
     """
     cache_key = f"license_cache:{email}"
     last_key = f"license_last:{email}"
 
-    cached = redis_conn.get(cache_key)
-    if cached:
-        try:
-            return json.loads(cached)
-        except Exception:
-            pass
+    if not force_refresh:
+        cached = redis_conn.get(cache_key)
+        if cached:
+            try:
+                return json.loads(cached)
+            except Exception:
+                return None
+        return None
 
     info = check_license_and_quota(email, license_key)
 
@@ -120,7 +127,7 @@ def trigger_license_validation(email: str, license_key: str) -> None:
         pass
 
     def _task():
-        info = get_cached_license_info(email, license_key)
+        info = get_cached_license_info(email, license_key, force_refresh=True)
         try:
             redis_conn.setex(status_key, LICENSE_CACHE_TTL, json.dumps(info))
         except Exception:
@@ -133,9 +140,51 @@ def get_user_queue(email: str) -> Queue:
     """Return the proper RQ Queue object for this user’s tier."""
     key  = session.get("saved_key") or session.get("key")
     info = get_cached_license_info(email, key)
+    if info is None:
+        info = get_cached_license_info(email, key, force_refresh=True)
     tier = (info or {}).get("tier", "default")
     name = tier if tier in {"Tier1", "Tier2", "Tier3"} else "default"
     return Queue(name=name, connection=redis_conn)
+
+
+def license_required(fn):
+    """Decorator ensuring the user has a valid (cached) license for HTML routes."""
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        email = session.get("email")
+        if not email:
+            return redirect(url_for("login"))
+        key = session.get("saved_key") or session.get("key")
+        info = get_cached_license_info(email, key)
+        if info is None:
+            info = get_cached_license_info(email, key, force_refresh=True)
+        if not info or not info.get("success"):
+            flash("❌ License expired or invalid. Please log in again.", "error")
+            session.clear()
+            return redirect(url_for("login"))
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def license_required_api(fn):
+    """Decorator ensuring a valid license for API/JSON routes."""
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        email = session.get("email")
+        if not email:
+            return {"error": "Unauthorized"}, 401
+        key = session.get("saved_key") or session.get("key")
+        info = get_cached_license_info(email, key)
+        if info is None:
+            info = get_cached_license_info(email, key, force_refresh=True)
+        if not info or not info.get("success"):
+            return {"error": "Invalid license"}, 403
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 # Rough per-prompt runtimes (seconds) for each mode
@@ -381,10 +430,8 @@ def ensure_worker_for_queue(queue_name: str, timeout: int = 30, poll: int = 3) -
 
 
 @app.route('/queue_eta')
+@license_required_api
 def queue_eta():
-    if "email" not in session:
-        return {"error": "Unauthorized"}, 401
-
     email = session["email"]
     q = get_user_queue(email)
     info = get_cached_queue_info(q.name)
@@ -414,10 +461,8 @@ def queue_eta():
 
 
 @app.route('/queue_updates')
+@license_required_api
 def queue_updates():
-    if "email" not in session:
-        return {"error": "Unauthorized"}, 401
-
     email = session["email"]
     queue_name = get_user_queue(email).name
     job_id = get_job_id(email)
@@ -449,10 +494,8 @@ def queue_updates():
 
 
 @app.route('/job_progress')
+@license_required_api
 def job_progress():
-    if "email" not in session:
-        return {"error": "Unauthorized"}, 401
-
     email = session["email"]
     job_id = get_job_id(email)
     if not job_id:
@@ -500,7 +543,7 @@ def login():
         key = request.form["key"]
         remember = "remember" in request.form
 
-        data = get_cached_license_info(email, key)
+        data = get_cached_license_info(email, key, force_refresh=True)
         if data.get("success"):
             session["email"] = email
             session["key"] = key
@@ -521,11 +564,8 @@ def login():
 
 
 @app.route("/dashboard", methods=["GET", "POST"])
+@license_required
 def dashboard():
-    if "email" not in session:
-        return redirect(url_for("login"))
-
-
     email = session["email"]
 
     # 👇 If this is a GET, use counters from session (if present)
@@ -580,10 +620,12 @@ def dashboard():
 
         # 1. Call the Apps Script to get quotas (cached)
         license_info = get_cached_license_info(email, key)
-        tier = license_info.get("tier", "default")
-        if not license_info.get("success"):
+        if license_info is None:
+            license_info = get_cached_license_info(email, key, force_refresh=True)
+        if not license_info or not license_info.get("success"):
             flash("❌ License check/validation failed. Please try again.", "error")
             return redirect(url_for("dashboard"))
+        tier = license_info.get("tier", "default")
 
 
         # ⏩ Continue with script execution if license is still valid
@@ -838,10 +880,8 @@ def dashboard():
 
 
 @app.route("/live_output")
+@license_required_api
 def live_output():
-    if "email" not in session:
-        return "Unauthorized", 401
-
     log_key = get_user_log_key(session["email"])
     logs = redis_conn.lrange(log_key, 0, -1)
     if not logs:
@@ -850,14 +890,16 @@ def live_output():
 
 
 @app.route("/queue_length")
+@license_required_api
 def queue_length():
     """Return current number of queued jobs."""
-    email = session.get("email")
-    q = get_user_queue(email) if email else Queue(connection=redis_conn)
+    email = session["email"]
+    q = get_user_queue(email)
     return {"count": int(q.count)}
 
 
 @app.route("/Users/<path:filepath>")
+@license_required_api
 def uploaded_file(filepath):
     safe_path = os.path.join("Users", *filepath.split("/"))
     directory = os.path.dirname(safe_path)
@@ -869,10 +911,8 @@ def uploaded_file(filepath):
     return send_from_directory(directory, filename)
 
 @app.route("/settings", methods=["GET", "POST"])
+@license_required
 def settings():
-    if "email" not in session:
-        return redirect(url_for("login"))
-
     email = session["email"]
     settings_path = get_user_settings_path(email)
 
@@ -916,10 +956,8 @@ def settings():
 
 
 @app.route("/subscription")
+@license_required
 def subscription():
-    if "email" not in session:
-        return redirect(url_for("login"))
-
     email = session["email"]
     key   = session.get("saved_key") or session.get("key")
 
@@ -955,10 +993,8 @@ def subscription():
 
 
 @app.route("/license_status")
+@license_required_api
 def license_status():
-    if "email" not in session:
-        return {"error": "Unauthorized"}, 401
-
     email = session["email"]
     data = redis_conn.get(f"license_status:{email}")
     if not data:
@@ -971,10 +1007,8 @@ def license_status():
 
 
 @app.route('/download_zip')
+@license_required_api
 def download_zip():
-    if "email" not in session:
-        return "Unauthorized", 401
-
     email = session["email"]
     zip_key = f"Users/{email}/images.zip"
 
@@ -997,10 +1031,8 @@ def download_zip():
 
 
 @app.route('/download_images_excel')
+@license_required_api
 def download_images_excel():
-    if "email" not in session:
-        return "Unauthorized", 401
-
     email = session["email"]
     excel_key = f"Users/{email}/images.xlsx"
 
@@ -1026,10 +1058,8 @@ from flask import make_response
 
 
 @app.route("/download_failed_prompts_excel")
+@license_required_api
 def download_failed_prompts_excel():
-    if "email" not in session:
-        return "Unauthorized", 401
-
     email = session["email"]
     json_key = f"Users/{email}/failed_prompts.json"
 
@@ -1070,10 +1100,8 @@ def download_failed_prompts_excel():
 
 
 @app.route("/cleanup_files", methods=["POST"])
+@license_required_api
 def cleanup_files():
-    if "email" not in session:
-        return "Unauthorized", 401
-
     email = session["email"]
     prompts_path = get_user_prompts_path(email)
     image_dir = get_user_images_dir(email)
@@ -1115,10 +1143,9 @@ def logout():
 
 
 @app.route("/cancel", methods=["POST"])
+@license_required_api
 def cancel_script():
-    email = session.get("email")
-    if not email:
-        return "❌ Not logged in", 401
+    email = session["email"]
 
     job_id = get_job_id(email)
 
