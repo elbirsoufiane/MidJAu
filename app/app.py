@@ -57,12 +57,18 @@ redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 # default_queue = Queue(connection=redis_conn)
 
 # Cache license lookups for a short time to avoid repeated network calls
-LICENSE_CACHE_TTL = 3600  # seconds
+LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "300"))  # seconds
+# Last-known valid license info cache TTL (fallback when quota check fails)
+LICENSE_LAST_TTL = int(os.getenv("LICENSE_LAST_TTL", "86400"))  # seconds
 
 
 def get_cached_license_info(email: str, license_key: str) -> dict:
-    """Fetch license info, using Redis cache when possible."""
+    """Fetch license info, using Redis cache when possible.
+
+    If a fresh lookup fails, fall back to the last known value stored in Redis.
+    """
     cache_key = f"license_cache:{email}"
+    last_key = f"license_last:{email}"
 
     cached = redis_conn.get(cache_key)
     if cached:
@@ -76,8 +82,27 @@ def get_cached_license_info(email: str, license_key: str) -> dict:
     if info.get("success"):
         try:
             redis_conn.setex(cache_key, LICENSE_CACHE_TTL, json.dumps(info))
+            # Store the last known valid info with a TTL to avoid indefinite reuse
+            redis_conn.setex(last_key, LICENSE_LAST_TTL, json.dumps(info))
         except Exception as e:
             print(f"Failed to cache license info: {e}")
+        return info
+
+    # If the license is invalid or expired, remove any previous cache and return immediately
+    if info.get("reason") != "Quota check failed":
+        try:
+            redis_conn.delete(last_key)
+        except Exception:
+            pass
+        return info
+
+    # On quota check failures (network/validation error), fall back to last known value
+    last = redis_conn.get(last_key)
+    if last:
+        try:
+            return json.loads(last)
+        except Exception:
+            pass
 
     return info
 
@@ -901,11 +926,11 @@ def subscription():
     # Trigger background validation and immediately return placeholder UI
     trigger_license_validation(email, key)
 
-    cached_raw = redis_conn.get(f"license_cache:{email}")
+    last_raw = redis_conn.get(f"license_last:{email}")
     last = {}
-    if cached_raw:
+    if last_raw:
         try:
-            last = json.loads(cached_raw)
+            last = json.loads(last_raw)
         except Exception:
             pass
 
