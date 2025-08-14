@@ -74,7 +74,13 @@ def get_cached_license_info(email: str, license_key: str, force_refresh: bool = 
         ``check_license_and_quota`` call. The result will still be cached if
         successful.
     """
-    cache_key = f"license_cache:{email}"
+    cache_key = f"license_cache:{email}:{license_key}"
+    old_key = f"license_cache:{email}"
+
+    try:
+        redis_conn.delete(old_key)
+    except Exception:
+        pass
 
     if not force_refresh:
         cached = redis_conn.get(cache_key)
@@ -959,7 +965,12 @@ def subscription():
     # Trigger background validation and immediately return placeholder UI
     trigger_license_validation(email, key)
 
-    cached_raw = redis_conn.get(f"license_cache:{email}")
+    cache_key = f"license_cache:{email}:{key}"
+    try:
+        redis_conn.delete(f"license_cache:{email}")
+    except Exception:
+        pass
+    cached_raw = redis_conn.get(cache_key)
     cached = {}
     if cached_raw:
         try:
