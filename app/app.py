@@ -57,7 +57,7 @@ redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 # default_queue = Queue(connection=redis_conn)
 
 # Cache license lookups for a short time to avoid repeated network calls
-LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "3600"))  # seconds
+LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "30"))  # seconds
 
 
 def get_cached_license_info(email: str, license_key: str, force_refresh: bool = False) -> dict:
