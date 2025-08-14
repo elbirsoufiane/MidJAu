@@ -60,6 +60,8 @@ redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "300"))  # seconds
 # Last-known valid license info cache TTL (fallback when quota check fails)
 LICENSE_LAST_TTL = int(os.getenv("LICENSE_LAST_TTL", "86400"))  # seconds
+# TTL for license validation performed at login
+LICENSE_LOGIN_TTL = int(os.getenv("LICENSE_LOGIN_TTL", "3600"))  # seconds
 
 
 def get_cached_license_info(email: str, license_key: str) -> dict:
@@ -500,8 +502,16 @@ def login():
         key = request.form["key"]
         remember = "remember" in request.form
 
-        data = get_cached_license_info(email, key)
+        data = check_license_and_quota(email, key)
         if data.get("success"):
+            try:
+                cache_key = f"license_cache:{email}"
+                last_key = f"license_last:{email}"
+                redis_conn.setex(cache_key, LICENSE_LOGIN_TTL, json.dumps(data))
+                redis_conn.setex(last_key, LICENSE_LAST_TTL, json.dumps(data))
+            except Exception as e:
+                print(f"Failed to cache license info: {e}")
+
             session["email"] = email
             session["key"] = key
             if remember:
@@ -515,7 +525,13 @@ def login():
             session["just_logged_in"] = True
             return redirect(url_for("dashboard"))
 
-        flash("❌ Invalid license. Please try again.", "error")
+        reason = (data.get("reason") or "").lower()
+        if "expired" in reason:
+            flash("❌ License expired. Please renew your key.", "error")
+        elif "invalid" in reason:
+            flash("❌ Invalid license key. Please try again.", "error")
+        else:
+            flash("❌ License validation failed. Please try again.", "error")
 
     return render_template("login.html")
 
