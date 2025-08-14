@@ -67,7 +67,16 @@ def get_cached_license_info(email: str, license_key: str) -> dict:
 
     If a fresh lookup fails, fall back to the last known value stored in Redis.
     """
-    cache_key = f"license_cache:{email}"
+    # New cache key includes the license key to avoid mixing results when a user
+    # switches keys. Delete any stale key that used the old pattern
+    # ``license_cache:<email>`` so the cache doesn't accumulate unused entries.
+    old_cache_key = f"license_cache:{email}"
+    try:
+        redis_conn.delete(old_cache_key)
+    except Exception:
+        pass
+
+    cache_key = f"license_cache:{email}:{license_key}"
     last_key = f"license_last:{email}"
 
     cached = redis_conn.get(cache_key)
