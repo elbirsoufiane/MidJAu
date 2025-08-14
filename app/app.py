@@ -60,16 +60,29 @@ redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
 LICENSE_CACHE_TTL = int(os.getenv("LICENSE_CACHE_TTL", "3600"))  # seconds
 
 
-def get_cached_license_info(email: str, license_key: str) -> dict:
-    """Fetch license info, using a short-lived Redis cache when possible."""
+def get_cached_license_info(email: str, license_key: str, force_refresh: bool = False) -> dict:
+    """Fetch license info, using a short-lived Redis cache when possible.
+
+    Parameters
+    ----------
+    email: str
+        The user's email address used as part of the cache key.
+    license_key: str
+        The license key associated with the user.
+    force_refresh: bool, optional
+        When ``True``, bypasses any cached entry and always performs a fresh
+        ``check_license_and_quota`` call. The result will still be cached if
+        successful.
+    """
     cache_key = f"license_cache:{email}"
 
-    cached = redis_conn.get(cache_key)
-    if cached:
-        try:
-            return json.loads(cached)
-        except Exception:
-            pass
+    if not force_refresh:
+        cached = redis_conn.get(cache_key)
+        if cached:
+            try:
+                return json.loads(cached)
+            except Exception:
+                pass
 
     info = check_license_and_quota(email, license_key)
 
@@ -475,7 +488,7 @@ def login():
         key = request.form["key"]
         remember = "remember" in request.form
 
-        data = get_cached_license_info(email, key)
+        data = get_cached_license_info(email, key, force_refresh=True)
         if data.get("success"):
             session["email"] = email
             session["key"] = key
@@ -490,7 +503,11 @@ def login():
             session["just_logged_in"] = True
             return redirect(url_for("dashboard"))
 
-        flash("❌ Invalid license. Please try again.", "error")
+        reason = (data.get("reason") or "").lower()
+        if "expired" in reason:
+            flash("❌ License expired. Please renew your subscription.", "error")
+        else:
+            flash("❌ Invalid license key. Please try again.", "error")
 
     return render_template("login.html")
 
