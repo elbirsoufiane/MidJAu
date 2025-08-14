@@ -126,6 +126,24 @@ def get_user_queue(email: str) -> Queue:
     return Queue(name=name, connection=redis_conn)
 
 
+def ensure_valid_license() -> dict | None:
+    """Return cached license info when valid, otherwise ``None``.
+
+    This relies on the short-lived cache from ``get_cached_license_info``.
+    If the cache is missing or expired a fresh check is triggered.  When the
+    resulting license data indicates failure the caller should treat the
+    action as unauthorized.
+    """
+    email = session.get("email")
+    key = session.get("saved_key") or session.get("key")
+    if not email or not key:
+        return None
+    info = get_cached_license_info(email, key)
+    if not info.get("success"):
+        return None
+    return info
+
+
 # Rough per-prompt runtimes (seconds) for each mode
 MODE_RUNTIME = {
     "U1": 42,
@@ -373,6 +391,9 @@ def queue_eta():
     if "email" not in session:
         return {"error": "Unauthorized"}, 401
 
+    if not ensure_valid_license():
+        return {"error": "License expired or invalid"}, 403
+
     email = session["email"]
     q = get_user_queue(email)
     info = get_cached_queue_info(q.name)
@@ -405,6 +426,9 @@ def queue_eta():
 def queue_updates():
     if "email" not in session:
         return {"error": "Unauthorized"}, 401
+
+    if not ensure_valid_license():
+        return {"error": "License expired or invalid"}, 403
 
     email = session["email"]
     queue_name = get_user_queue(email).name
@@ -440,6 +464,9 @@ def queue_updates():
 def job_progress():
     if "email" not in session:
         return {"error": "Unauthorized"}, 401
+
+    if not ensure_valid_license():
+        return {"error": "License expired or invalid"}, 403
 
     email = session["email"]
     job_id = get_job_id(email)
@@ -488,7 +515,7 @@ def login():
         key = request.form["key"]
         remember = "remember" in request.form
 
-        data = get_cached_license_info(email, key, force_refresh=True)
+        data = get_cached_license_info(email, key)
         if data.get("success"):
             session["email"] = email
             session["key"] = key
@@ -517,6 +544,9 @@ def dashboard():
     if "email" not in session:
         return redirect(url_for("login"))
 
+    if not ensure_valid_license():
+        flash("❌ License expired or invalid. Please log in again.", "error")
+        return redirect(url_for("login"))
 
     email = session["email"]
 
@@ -567,13 +597,9 @@ def dashboard():
 
     if request.method == "POST":
         # 🔐 License revalidation before proceeding
-        email = session["email"]
-        key = session.get("saved_key") or session.get("key")
-
-        # 1. Call the Apps Script to get quotas (cached)
-        license_info = get_cached_license_info(email, key)
-        tier = license_info.get("tier", "default")
-        if not license_info.get("success"):
+        license_info = ensure_valid_license()
+        tier = license_info.get("tier", "default") if license_info else "default"
+        if not license_info:
             flash("❌ License check/validation failed. Please try again.", "error")
             return redirect(url_for("dashboard"))
 
@@ -834,6 +860,9 @@ def live_output():
     if "email" not in session:
         return "Unauthorized", 401
 
+    if not ensure_valid_license():
+        return "License expired or invalid", 403
+
     log_key = get_user_log_key(session["email"])
     logs = redis_conn.lrange(log_key, 0, -1)
     if not logs:
@@ -845,7 +874,12 @@ def live_output():
 def queue_length():
     """Return current number of queued jobs."""
     email = session.get("email")
-    q = get_user_queue(email) if email else Queue(connection=redis_conn)
+    if email:
+        if not ensure_valid_license():
+            return {"error": "License expired or invalid"}, 403
+        q = get_user_queue(email)
+    else:
+        q = Queue(connection=redis_conn)
     return {"count": int(q.count)}
 
 
@@ -863,6 +897,9 @@ def uploaded_file(filepath):
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     if "email" not in session:
+        return redirect(url_for("login"))
+    if not ensure_valid_license():
+        flash("❌ License expired or invalid. Please log in again.", "error")
         return redirect(url_for("login"))
 
     email = session["email"]
@@ -910,6 +947,10 @@ def settings():
 @app.route("/subscription")
 def subscription():
     if "email" not in session:
+        return redirect(url_for("login"))
+
+    if not ensure_valid_license():
+        flash("❌ License expired or invalid. Please log in again.", "error")
         return redirect(url_for("login"))
 
     email = session["email"]
@@ -967,6 +1008,9 @@ def download_zip():
     if "email" not in session:
         return "Unauthorized", 401
 
+    if not ensure_valid_license():
+        return "License expired or invalid", 403
+
     email = session["email"]
     zip_key = f"Users/{email}/images.zip"
 
@@ -992,6 +1036,9 @@ def download_zip():
 def download_images_excel():
     if "email" not in session:
         return "Unauthorized", 401
+
+    if not ensure_valid_license():
+        return "License expired or invalid", 403
 
     email = session["email"]
     excel_key = f"Users/{email}/images.xlsx"
@@ -1021,6 +1068,9 @@ from flask import make_response
 def download_failed_prompts_excel():
     if "email" not in session:
         return "Unauthorized", 401
+
+    if not ensure_valid_license():
+        return "License expired or invalid", 403
 
     email = session["email"]
     json_key = f"Users/{email}/failed_prompts.json"
@@ -1065,6 +1115,9 @@ def download_failed_prompts_excel():
 def cleanup_files():
     if "email" not in session:
         return "Unauthorized", 401
+
+    if not ensure_valid_license():
+        return "License expired or invalid", 403
 
     email = session["email"]
     prompts_path = get_user_prompts_path(email)
@@ -1111,6 +1164,9 @@ def cancel_script():
     email = session.get("email")
     if not email:
         return "❌ Not logged in", 401
+
+    if not ensure_valid_license():
+        return "❌ License expired or invalid", 403
 
     job_id = get_job_id(email)
 
