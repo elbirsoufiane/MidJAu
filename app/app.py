@@ -521,7 +521,7 @@ def login():
         key = request.form["key"]
         remember = "remember" in request.form
 
-        data = get_cached_license_info(email, key)
+        data = get_cached_license_info(email, key, force_refresh=True)
         if data.get("success"):
             session["email"] = email
             session["key"] = key
