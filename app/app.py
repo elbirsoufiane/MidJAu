@@ -88,6 +88,11 @@ def get_cached_license_info(email: str, license_key: str) -> dict:
             print(f"Failed to cache license info: {e}")
         return info
 
+    # If the license server is unreachable, return immediately without
+    # caching so that the next attempt rechecks right away.
+    if info.get("reason") == "License server unreachable":
+        return info
+
     # If the license is invalid or expired, remove any previous cache and return immediately
     if info.get("reason") != "Quota check failed":
         try:
@@ -344,11 +349,25 @@ def check_license_and_quota(email, license_key):
     }
     try:
         resp = requests.get(LICENSE_VALIDATION_URL, params=params, timeout=5)
-        resp.raise_for_status()
-        return resp.json()  # Should have success, tier, dailyQuota, jobQuota, promptsToday
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         print(f"License/Quota check error: {e}")
-        return {"success": False, "reason": "Quota check failed"}
+        return {"success": False, "reason": "License server unreachable"}
+
+    try:
+        data = resp.json()
+    except Exception:
+        data = {}
+
+    if resp.status_code == 200:
+        return data
+
+    # For non-200 responses, assume the server provided details about
+    # invalid or expired licenses in the JSON payload.  If the payload is
+    # empty treat it as an invalid license response.
+    if data:
+        return data
+
+    return {"success": False, "reason": "Quota check failed"}
     
 
 
@@ -515,7 +534,10 @@ def login():
             session["just_logged_in"] = True
             return redirect(url_for("dashboard"))
 
-        flash("❌ Invalid license. Please try again.", "error")
+        if data.get("reason") == "License server unreachable":
+            flash("⚠️ Unable to reach license server. Please try again later.", "error")
+        else:
+            flash("❌ Invalid license. Please try again.", "error")
 
     return render_template("login.html")
 
@@ -582,7 +604,10 @@ def dashboard():
         license_info = get_cached_license_info(email, key)
         tier = license_info.get("tier", "default")
         if not license_info.get("success"):
-            flash("❌ License check/validation failed. Please try again.", "error")
+            if license_info.get("reason") == "License server unreachable":
+                flash("⚠️ Could not reach license server. Please try again.", "error")
+            else:
+                flash("❌ License check/validation failed. Please try again.", "error")
             return redirect(url_for("dashboard"))
 
 
