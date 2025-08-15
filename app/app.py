@@ -13,6 +13,7 @@ import os
 import time
 import subprocess
 import json
+import secrets
 from threading import Thread
 import heapq
 from flask import send_from_directory
@@ -923,6 +924,7 @@ def settings():
     except Exception as e:
         flash(f"⚠️ Failed to download settings: {e}", "error")
 
+    token_nonce = None
     if request.method == "POST":
         new_settings = {
             "USER TOKEN": request.form.get("user_token"),
@@ -940,6 +942,15 @@ def settings():
             flash("✅ Settings saved!", "success")
         else:
             flash("❌ Failed to upload settings to cloud storage", "error")
+        token_state = session.get("token_state")
+        if token_state:
+            token_nonce = token_state.get("value")
+    else:
+        token_nonce = secrets.token_urlsafe(16)
+        session["token_state"] = {
+            "value": token_nonce,
+            "expires": time.time() + 300,
+        }
 
     try:
         with open(settings_path) as f:
@@ -947,7 +958,57 @@ def settings():
     except Exception:
         current_settings = {}
 
-    return render_template("settings.html", settings=current_settings)
+    return render_template("settings.html", settings=current_settings, token_nonce=token_nonce)
+
+
+@app.route("/receive_token")
+def receive_token():
+    if "email" not in session:
+        return redirect(url_for("login"))
+    if not ensure_valid_license():
+        flash("❌ License expired or invalid. Please log in again.", "error")
+        return redirect(url_for("login"))
+
+    token_state = session.get("token_state")
+    state = request.args.get("state")
+    if (
+        not token_state
+        or token_state.get("value") != state
+        or token_state.get("expires", 0) < time.time()
+    ):
+        session.pop("token_state", None)
+        flash("❌ Invalid or expired token state.", "error")
+        return redirect(url_for("settings"))
+
+    session.pop("token_state", None)
+
+    token_value = request.args.get("value")
+    if not token_value:
+        flash("❌ No token provided.", "error")
+        return redirect(url_for("settings"))
+
+    email = session["email"]
+    settings_path = get_user_settings_path(email)
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+
+    try:
+        if os.path.exists(settings_path):
+            with open(settings_path) as f:
+                current_settings = json.load(f)
+        else:
+            current_settings = {}
+        current_settings["USER TOKEN"] = token_value
+        with open(settings_path, "w") as f:
+            json.dump(current_settings, f, indent=4)
+        settings_stream = BytesIO(json.dumps(current_settings).encode("utf-8"))
+        if upload_file_obj(settings_stream, f"Users/{email}/settings.json"):
+            flash("✅ Token saved!", "success")
+        else:
+            flash("❌ Failed to upload token to cloud storage", "error")
+    except Exception as e:
+        flash(f"❌ Failed to save token: {e}", "error")
+
+    return redirect(url_for("settings"))
 
 
 @app.route("/subscription")

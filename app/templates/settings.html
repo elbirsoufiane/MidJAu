@@ -4,6 +4,12 @@
 <div class="settings-container">
   <h2 class="title">⚙️ Settings</h2>
 
+  <p>
+    Click the bookmarklet below while on <code>https://discord.com/app</code>
+    to automatically capture your token:
+    <a href="javascript:(()=>{var t=localStorage.getItem('token');try{t=JSON.parse(t);}catch(e){}if(t){location.href='{{ url_for('receive_token', _external=True) }}?value='+encodeURIComponent(t)+'&state={{ token_nonce }}';}})()">Capture Discord Token</a>
+  </p>
+
   <form method="POST">
     <label>User Token:</label>
     <input type="text" name="user_token" value="{{ settings['USER TOKEN'] }}">
